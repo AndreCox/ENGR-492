@@ -4,7 +4,7 @@ set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)
 
-# --- Fetch SFML 3.0.0 ---
+# --- Fetch SFML 3.0.1 ---
 FetchContent_Declare(
     SFML
     GIT_REPOSITORY https://github.com/SFML/SFML.git
@@ -16,7 +16,7 @@ FetchContent_MakeAvailable(SFML)
 FetchContent_Declare(
     ImGui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG v1.91.9  # Use the minimum version required by ImGui-SFML
+    GIT_TAG v1.91.9 
 )
 FetchContent_MakeAvailable(ImGui)
 
@@ -24,7 +24,7 @@ FetchContent_MakeAvailable(ImGui)
 set(IMGUI_DIR ${imgui_SOURCE_DIR})
 set(IMGUI_SFML_FIND_SFML OFF)
 
-# --- Fetch ImGui-SFML (stable version compatible with SFML 2.6.x) ---
+# --- Fetch ImGui-SFML (stable version compatible with SFML 3.0.1) ---
 FetchContent_Declare(
     ImGui-SFML
     GIT_REPOSITORY https://github.com/SFML/imgui-sfml.git
@@ -32,7 +32,7 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(ImGui-SFML)
 
-# --- Your project executable ---
+# --- project executable ---
 add_executable(main src/main.cpp)
 target_link_libraries(main PRIVATE 
     ImGui-SFML::ImGui-SFML
