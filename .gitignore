@@ -1,0 +1,38 @@
+*.md
+Quizzes
+*.xopp
+
+# Ignore Mac system files
+.DS_Store
+.AppleDouble
+.LSOverride
+# Thumbnails
+._**
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Cmake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+Testing/
+CTestTestfile.cmake
+cmake-build-*/
+
+# build directories
+
+build/
+bin/
+out/
+debug/
+release/
+x64/
+x86/
