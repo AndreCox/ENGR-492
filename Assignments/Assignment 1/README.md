@@ -9,6 +9,7 @@ This project was built with modern C++ on Fedora Linux. However it should compil
 
 ## Linux build dependencies
 These can be installed using apt or dnf.
+
 **Fedora/RHEL/CentOS**
 
 ```libX11-devel libXrandr-devel libXcursor-devel libXi-devel  mesa-libGL-devel libXxf86vm-devel libXinerama-devel libXfixes-devel systemd-devel freetype-devel libvorbis-devel libogg-devel flac-devel```
