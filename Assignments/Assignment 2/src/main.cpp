@@ -163,7 +163,7 @@ int main()
     // Define boundary conditions
     Eigen::VectorXf forces(3);
     Eigen::VectorXf displacements(3);
-    forces << NAN, 0, 100e3;      // Apply a force of 100 kN at the end of the aluminum shaft
+    forces << NAN, 0, 10e3;       // Apply a force of 10 kN at the end of the aluminum shaft
     displacements << 0, NAN, NAN; // Fix the left end of the steel shaft
 
     shaft_system.solve_system(forces, displacements);
