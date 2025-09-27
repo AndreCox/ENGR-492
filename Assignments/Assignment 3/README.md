@@ -28,7 +28,7 @@ git clone https://github.com/AndreCox/ENGR-492.git
 Enter the path for the project
 
 ```sh
-cd ENGR-492/Assignments/Assignment\ 2/
+cd ENGR-492/Assignments/Assignment\ 3/
 ```
 
 
