@@ -3,8 +3,6 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Window.hpp>
 #include <SFML/System.hpp>
-#include <SFML/Graphics/Font.hpp>
-#include <SFML/Graphics/Text.hpp>
 #include <imgui.h>
 #include <imgui-SFML.h>
 #include <Eigen/Eigen>
@@ -135,13 +133,6 @@ private:
 
 int main()
 {
-
-    sf::Font font;
-    if (!font.openFromFile("assets/roboto.ttf"))
-    {
-        std::cerr << "Failed to load font\n";
-        return -1;
-    }
 
     sf::Vector2u window_size(1200, 400);
 
