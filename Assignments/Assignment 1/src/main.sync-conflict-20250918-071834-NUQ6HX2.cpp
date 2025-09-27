@@ -5,8 +5,6 @@
 #include <imgui.h>
 #include <imgui-SFML.h>
 
-#include <thread>
-
 double shaft_radius(double x)
 {
     return 10.0 + ((50 - 10) / (2000.0)) * x;
@@ -69,8 +67,7 @@ int main()
         }
         ImGui::SFML::Update(window, deltaClock.restart());
 
-        // 2. Show a simple window with various widgets
-
+        // IMGUI Window
         ImGui::Begin("Shaft Controls");
 
         ImGui::Text("Shaft Length: %.1f mm", shaft_length);
@@ -79,8 +76,7 @@ int main()
         ImGui::Text("Young's Modulus: %.2f GPa", E / 1e9);
         ImGui::Text("Applied Force: %.2f kN", F / 1e3);
 
-        ImGui::SliderInt("Number of Sections", &num_sections, 1, 5000);
-        // add sliders for scale_x and scale_y
+        ImGui::SliderInt("Number of Sections", &num_sections, 1, 2000);
         ImGui::SliderFloat2("Scale (X, Y)", scales, 0.1f, 4.0f);
         ImGui::Text("Estimated Elongation: %.10f mm", estimated_elongation * 1e3);
         estimated_elongation = 0.0;
@@ -123,11 +119,14 @@ int main()
         for (int i = 0; i < num_sections; ++i)
         {
             double x = (shaft_length / num_sections) * i;
+            double next_x = (shaft_length / num_sections) * (i + 1);
             double radius = shaft_radius(x);
-            sf::RectangleShape section(sf::Vector2f((shaft_length / num_sections) * scales[0], radius * 2 * scales[1]));
+            double next_radius = shaft_radius(next_x);
+            double avg_radius = 0.5 * (radius + next_radius);
+            sf::RectangleShape section(sf::Vector2f((shaft_length / num_sections) * scales[0], avg_radius * 2 * scales[1]));
             section.setPosition(sf::Vector2f(
                 static_cast<float>(x_center - (shaft_length * scales[0]) / 2 + (shaft_length / num_sections) * i * scales[0]),
-                static_cast<float>(y_center - radius * scales[1])));
+                static_cast<float>(y_center - avg_radius * scales[1])));
 
             section.setFillColor(sf::Color(250, 0, 0, 150));
             if (num_sections < 150)
@@ -140,7 +139,7 @@ int main()
 
         for (int i = 0; i < num_sections; ++i)
         {
-            double x = (shaft_length / num_sections) * i;
+            double x = (shaft_length / num_sections) * (i);
             double next_x = (shaft_length / num_sections) * (i + 1);
             double radius = shaft_radius(x);
             double next_radius = shaft_radius(next_x);
