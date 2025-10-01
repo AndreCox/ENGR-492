@@ -52,11 +52,7 @@
     "streambuf": "cpp",
     "text_encoding": "cpp",
     "typeinfo": "cpp",
-<<<<<<< HEAD
-    "variant": "cpp"
-=======
     "variant": "cpp",
     "eigen": "cpp"
->>>>>>> 950345652516d03366aeca02fe1ba6e995b17670
   }
 }

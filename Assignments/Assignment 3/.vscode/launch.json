@@ -1,19 +1,4 @@
 {
-<<<<<<< HEAD
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "Build Debug",
-      "type": "shell",
-      "command": "cmake",
-      "args": ["--build", "${workspaceFolder}/build", "--config", "Debug"],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": ["$gcc"],
-      "detail": "Builds the project using CMake in debug mode"
-=======
   "version": "0.2.0",
   "configurations": [
     {
@@ -84,7 +69,6 @@
       },
       "sourceFileMap": {},
       "additionalSOLibSearchPath": ""
->>>>>>> 950345652516d03366aeca02fe1ba6e995b17670
     }
   ]
 }
