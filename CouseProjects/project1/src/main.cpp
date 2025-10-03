@@ -1,20 +1,19 @@
 #include <iostream>
 #include <cmath>
-#include <SFML/Graphics.hpp>
-#include <SFML/Window.hpp>
-#include <SFML/System.hpp>
-#include <SFML/Graphics/Font.hpp>
-#include <SFML/Graphics/Text.hpp>
-#include <SFML/Graphics/Vertex.hpp>
-#include <imgui.h>
-#include <imgui-SFML.h>
 #include <Eigen/Eigen>
 #include <vector>
+#include <SFML/Graphics.hpp>
+#include <SFML/System.hpp>
+#include <SFML/Window.hpp>
+#include <imgui-SFML.h>
+#include <imgui.h>
 
+// Constants for scaling
 float scale_x = 1000;
 float scale_y = 4;
 float scales[2] = {scale_x, scale_y};
 
+// Class representing a node in the spring system
 class Node
 {
 public:
@@ -23,16 +22,9 @@ public:
     bool is_fixed;
 
     Node(int i, float pos, bool fixed) : id(i), position(pos), is_fixed(fixed) {}
-
-    void draw(sf::RenderWindow &window) const
-    {
-        sf::CircleShape circle(10);
-        circle.setFillColor(is_fixed ? sf::Color::Red : sf::Color::Green);
-        circle.setPosition(sf::Vector2f(position * (scale_x / 1000.0f), static_cast<float>(window.getSize().y) / 2.0f - 10.0f));
-        window.draw(circle);
-    }
 };
 
+// Class representing a spring in the spring system
 class Spring
 {
 public:
@@ -44,29 +36,24 @@ public:
     }
 
     int id;
-    int nodes[2]; // node indices
-    double k;     // stiffness
-
+    int nodes[2];             // node indices
+    double k;                 // stiffness
     Eigen::Matrix2f k_matrix; // stiffness matrix
 
 private:
-    void compute_stiffness()
-    {
-        k_matrix << k, -k,
-            -k, k;
-    }
+    void compute_stiffness() { k_matrix << k, -k, -k, k; }
 };
 
-double compute_springyness(double E, double A, double L)
-{
-    return (E * A) / L;
-}
+// Function to compute springyness
+double compute_springyness(double E, double A, double L) { return (E * A) / L; }
 
+// Function to compute width
 double compute_width(double x)
 {
     return 4.0 - x * (1.0 / 5.0); // linear taper from 4 to 2 over 10 units
 }
 
+// Class representing the spring system
 class SpringSystem
 {
 public:
@@ -76,19 +63,16 @@ public:
     Eigen::VectorXf forces;
     Eigen::VectorXf displacements;
 
-    // the user defines the spring system by providing a vector of the nodes and a vector of the springs
-    SpringSystem(const std::vector<Node> &n, const std::vector<Spring> &s) : nodes(n), springs(s)
-    {
-        assemble_global_stiffness();
-    }
+    SpringSystem(const std::vector<Node> &n, const std::vector<Spring> &s) : nodes(n), springs(s) { assemble_global_stiffness(); }
 
     int solve_system()
     {
-        // check to see if we have any fixed nodes
+        // Check to see if we have any fixed nodes
         int num_nodes = nodes.size();
         Eigen::VectorXf reduced_forces;
         Eigen::MatrixXf reduced_k_matrix;
         std::vector<int> free_node_indices;
+
         for (int i = 0; i < num_nodes; ++i)
         {
             if (!nodes[i].is_fixed)
@@ -100,6 +84,7 @@ public:
         int num_free_nodes = free_node_indices.size();
         reduced_k_matrix = Eigen::MatrixXf::Zero(num_free_nodes, num_free_nodes);
         reduced_forces = Eigen::VectorXf::Zero(num_free_nodes);
+
         for (int i = 0; i < num_free_nodes; ++i)
         {
             for (int j = 0; j < num_free_nodes; ++j)
@@ -111,19 +96,15 @@ public:
 
         // Solve for displacements
         Eigen::VectorXf reduced_displacements = reduced_k_matrix.colPivHouseholderQr().solve(reduced_forces);
+
         for (int i = 0; i < num_free_nodes; ++i)
         {
             displacements(free_node_indices[i]) = reduced_displacements(i);
         }
 
-        // solve for forces
+        // Solve for forces
         forces = global_k_matrix * displacements;
 
-        // std::cout << "Displacements:\n"
-        //           << displacements << std::endl;
-
-        // std::cout << "Forces:\n"
-        //           << forces << std::endl;
         return 0;
     }
 
@@ -132,7 +113,6 @@ private:
     {
         int num_nodes = nodes.size();
         global_k_matrix = Eigen::MatrixXf::Zero(num_nodes, num_nodes);
-
         for (const auto &spring : springs)
         {
             int n1 = spring.nodes[0];
@@ -142,41 +122,29 @@ private:
             global_k_matrix(n2, n1) += spring.k_matrix(1, 0);
             global_k_matrix(n2, n2) += spring.k_matrix(1, 1);
         }
-
         forces = Eigen::VectorXf::Zero(num_nodes);
         displacements = Eigen::VectorXf::Zero(num_nodes);
-
-        // std::cout << "Global Stiffness Matrix:\n"
-        //           << global_k_matrix << std::endl;
     }
 };
 
-double compute_diameter(double x, double D, double d, double L)
-{
-    return D - (D - d) * (x / L);
-}
+// Function to compute diameter
+double compute_diameter(double x, double D, double d, double L) { return D - (D - d) * (x / L); }
 
-double compute_area(double diameter)
-{
-    return M_PI * std::pow(diameter / 2.0, 2);
-}
+// Function to compute area
+double compute_area(double diameter) { return M_PI * std::pow(diameter / 2.0, 2); }
 
-double compute_stress(double force, double area)
-{
-    return force / area;
-}
+// Function to compute stress
+double compute_stress(double force, double area) { return force / area; }
 
 int main()
 {
-    sf::Vector2u window_size(1200, 400);
-
+    // Constants
     const double E = 260e9; // Young's modulus in Pascals (N/m^2)
     const double P = 500;   // Applied load in Newtons
     const double D = 0.75;  // Major diameter in meters
     const double d = 0.25;  // Minor diameter in meters
     const double L = 1.0;   // Length in meters
-
-    const int segments = 1000;
+    const int segments = 300;
 
     std::vector<Node> nodes;
     std::vector<Spring> springs;
@@ -194,26 +162,24 @@ int main()
         double area = compute_area(diameter);
         double springyness = compute_springyness(E, area, L / segments);
         springs.emplace_back(i - 1, i - 1, i, springyness);
-
-        // std::cout << "Node " << i << ": Position = " << position << ", Fixed = " << is_fixed << std::endl;
     }
 
-    std::cout << "Total nodes created: " << nodes.size() + 1 << std::endl; // +1 for the last fixed node
-    std::cout << "Total springs created: " << springs.size() << std::endl;
-
-    // add the last node
     nodes.emplace_back(segments, L, true); // Fixed node at the end
-    std::cout << "Node " << segments << ": Position = " << L << ", Fixed = " << 1 << std::endl;
+
+    std::cout << "Total nodes created: " << nodes.size() + 1 << std::endl; // +1 for the last fixed node
+    std::cout << "Total springs created: " << springs.size() << std::endl; // add the last node
 
     SpringSystem spring_system(nodes, springs);
 
-    float applied_force_location = 0; // we want to set this to where the diff of the stress is minimized
-    float stress_diff_at_location = 0;
+    float applied_force_location = 0;  // we want to set this to where the diff of the stress is minimized
+    float stress_diff_at_location = 0; // apply the force and sweep it across the free nodes one at a time to find the change in reaction forces
 
-    // apply the force and sweep it across the free nodes one at a time to find the change in reaction forces
+    std::vector<float> stress_diffs;
+
     // Progress bar variables
     const int progress_bar_width = 50;
     std::cout << "Sweeping force application across nodes:\n[";
+
     for (int i = 0; i < segments; ++i)
     {
         if (!nodes[i].is_fixed)
@@ -226,15 +192,17 @@ int main()
             float reaction_forces[2];
             reaction_forces[0] = spring_system.forces(start_node);
             reaction_forces[1] = spring_system.forces(end_node);
-            float stress_diff = std::abs(compute_stress(reaction_forces[0], compute_area(compute_diameter(0, D, d, L))) -
-                                         compute_stress(reaction_forces[1], compute_area(compute_diameter(L, D, d, L))));
+
+            float stress_diff = std::abs(compute_stress(reaction_forces[0], compute_area(compute_diameter(0.0, D, d, L))) - compute_stress(reaction_forces[1], compute_area(compute_diameter(L, D, d, L))));
+            stress_diffs.push_back(stress_diff);
             if (i == 1 || stress_diff < stress_diff_at_location)
             {
                 applied_force_location = i;
                 stress_diff_at_location = stress_diff;
             }
 
-            spring_system.forces(i) = 0; // reset force
+            spring_system.displacements.setZero(); // reset displacements
+            spring_system.forces.setZero();        // reset forces
         }
 
         // Progress bar update
@@ -244,22 +212,21 @@ int main()
             std::cout.flush();
         }
     }
+
     std::cout << "] Done.\n";
 
-    // now we print the distance where the force should be applied and the stress difference at that location
-    std::cout << "Optimal force application location: Node " << applied_force_location
-              << " (Position: " << nodes[static_cast<int>(applied_force_location)].position << " meters)" << std::endl;
+    // Now we print the distance where the force should be applied and the stress difference at that location
+    std::cout << "Optimal force application location: Node " << applied_force_location << " (Position: " << nodes[static_cast<int>(applied_force_location)].position << " meters)" << std::endl;
     std::cout << "Minimum stress difference at this location: " << stress_diff_at_location << " Pa" << std::endl;
 
-    sf::RenderWindow window(sf::VideoMode(window_size), "Spring System Visualization");
-    if (!ImGui::SFML::Init(window))
-    {
-        std::cerr << "Failed to initialize ImGui-SFML" << std::endl;
-        return -1;
-    }
-
-    sf::Clock deltaClock;
-
+    // use sfml to plot the stress diffs
+    // Create a window
+    sf::Vector2u window_size(1200, 400);
+    sf::RenderWindow window(sf::VideoMode(window_size), "Stress Difference Plot");
+    window.setFramerateLimit(60);
+    // Initialize ImGui-SFML
+    ImGui::SFML::Init(window);
+    // Main loop
     while (window.isOpen())
     {
         while (const std::optional<sf::Event> event = window.pollEvent())
@@ -280,35 +247,110 @@ int main()
                 }
             }
         }
+        ImGui::SFML::Update(window, sf::seconds(1.f / 60.f));
+        window.clear(sf::Color::White);
+        // Create a window for the plot
+        // Create a window for the plot
+        ImGui::Begin("Stress Difference Plot", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
 
-        ImGui::SFML::Update(window, deltaClock.restart());
+        // Prepare data for plotting: x = position (meters), y = stress difference (Pa)
+        static std::vector<float> x_positions;
+        if (x_positions.size() != stress_diffs.size())
+        {
+            x_positions.resize(stress_diffs.size());
+            for (size_t i = 0; i < stress_diffs.size(); ++i)
+            {
+                x_positions[i] = nodes[i].position;
+            }
+        }
 
-        ImGui::Begin("System Controls");
+        // Find min/max for scaling
+        float min_stress = *std::min_element(stress_diffs.begin(), stress_diffs.end());
+        float max_stress = *std::max_element(stress_diffs.begin(), stress_diffs.end());
+        float min_pos = x_positions.front();
+        float max_pos = x_positions.back();
 
-        // add sliders to control scale_x and scale_y
-        ImGui::SliderFloat("Scale X", &scale_x, 50.0f, 1000.0f);
-        ImGui::SliderFloat("Scale Y", &scale_y, 1.0f, 10.0f);
+        // Plot area
+        ImVec2 plot_size(800, 400);
+        ImVec2 plot_pos = ImGui::GetCursorScreenPos();
+        ImDrawList *draw_list = ImGui::GetWindowDrawList();
 
-        ImGui::Separator();
+        // Draw background
+        draw_list->AddRectFilled(plot_pos, ImVec2(plot_pos.x + plot_size.x, plot_pos.y + plot_size.y),
+                                 IM_COL32(40, 40, 40, 255));
 
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                    1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+        // Draw grid lines
+        for (int i = 0; i <= 10; ++i)
+        {
+            float y = plot_pos.y + (plot_size.y / 10.0f) * i;
+            draw_list->AddLine(ImVec2(plot_pos.x, y), ImVec2(plot_pos.x + plot_size.x, y),
+                               IM_COL32(80, 80, 80, 255));
+        }
 
-        // add frametime graph
-        static float frametimes[100] = {0};
-        static int frametime_index = 0;
-        frametimes[frametime_index] = 1000.0f / ImGui::GetIO().Framerate;
-        frametime_index = (frametime_index + 1) % 100;
-        ImGui::PlotLines("Frame Time (ms)", frametimes, 100, frametime_index, NULL, 0.0f, 50.0f, ImVec2(0, 80));
+        // Plot the data
+        for (size_t i = 1; i < stress_diffs.size(); ++i)
+        {
+            // Map position to X coordinate
+            float x1 = plot_pos.x + ((x_positions[i - 1] - min_pos) / (max_pos - min_pos)) * plot_size.x;
+            float x2 = plot_pos.x + ((x_positions[i] - min_pos) / (max_pos - min_pos)) * plot_size.x;
+
+            // Map stress to Y coordinate (inverted because screen Y increases downward)
+            float y1 = plot_pos.y + plot_size.y - ((stress_diffs[i - 1] - min_stress) / (max_stress - min_stress)) * plot_size.y;
+            float y2 = plot_pos.y + plot_size.y - ((stress_diffs[i] - min_stress) / (max_stress - min_stress)) * plot_size.y;
+
+            draw_list->AddLine(ImVec2(x1, y1), ImVec2(x2, y2), IM_COL32(0, 255, 0, 255), 2.0f);
+        }
+
+        // Create invisible button for hover detection
+        ImGui::InvisibleButton("plot", plot_size);
+
+        // Show hovered value
+        if (ImGui::IsItemHovered())
+        {
+            ImGuiIO &io = ImGui::GetIO();
+            float mouse_x = io.MousePos.x - plot_pos.x;
+            float mouse_y = io.MousePos.y - plot_pos.y;
+
+            // Map mouse X back to position
+            float hovered_pos = min_pos + (mouse_x / plot_size.x) * (max_pos - min_pos);
+
+            // Find closest data point
+            int closest_idx = 0;
+            float min_dist = std::abs(x_positions[0] - hovered_pos);
+            for (size_t i = 1; i < x_positions.size(); ++i)
+            {
+                float dist = std::abs(x_positions[i] - hovered_pos);
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
+                    closest_idx = i;
+                }
+            }
+
+            // Draw tooltip
+            ImGui::BeginTooltip();
+            ImGui::Text("Position: %.4f meters", x_positions[closest_idx]);
+            ImGui::Text("Stress Difference: %.2f Pa", stress_diffs[closest_idx]);
+            ImGui::EndTooltip();
+
+            // Draw crosshair at hovered point
+            float px = plot_pos.x + ((x_positions[closest_idx] - min_pos) / (max_pos - min_pos)) * plot_size.x;
+            float py = plot_pos.y + plot_size.y - ((stress_diffs[closest_idx] - min_stress) / (max_stress - min_stress)) * plot_size.y;
+            draw_list->AddCircleFilled(ImVec2(px, py), 5.0f, IM_COL32(255, 255, 0, 255));
+        }
+
+        // Draw axis labels
+        ImGui::Text("Position: %.3f m to %.3f m", min_pos, max_pos);
+        ImGui::Text("Stress Difference: %.2f Pa to %.2f Pa", min_stress, max_stress);
+        ImGui::Text("Optimal location: %.4f m (Stress diff: %.2f Pa)",
+                    nodes[applied_force_location].position, stress_diff_at_location);
 
         ImGui::End();
-
-        window.clear(sf::Color::Black);
-
+        // Render ImGui
         ImGui::SFML::Render(window);
         window.display();
     }
-
     ImGui::SFML::Shutdown();
+
     return 0;
 }
