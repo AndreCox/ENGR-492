@@ -2,7 +2,7 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "CMake Configure Debug",
+      "label": "Configure Debug",
       "type": "shell",
       "command": "cmake",
       "args": [
@@ -15,7 +15,7 @@
       "problemMatcher": []
     },
     {
-      "label": "CMake Build Debug",
+      "label": "Build Debug",
       "type": "shell",
       "command": "cmake",
       "args": [
@@ -30,7 +30,25 @@
         "kind": "build",
         "isDefault": true
       },
-      "dependsOn": "CMake Configure Debug",
+      "dependsOn": "Configure Debug",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Build Debug (Quick)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build/debug",
+        "--config",
+        "Debug",
+        "--",
+        "-j8"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
       "problemMatcher": ["$gcc"]
     }
   ]
