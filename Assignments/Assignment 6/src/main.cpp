@@ -111,13 +111,10 @@ public:
     std::vector<Node> nodes;
     std::vector<Spring> springs;
     Eigen::MatrixXd global_k_matrix;
-    Eigen::MatrixXd constraints;  // constraint vector
     Eigen::VectorXd forces;       // forces in x and y directions [F1x, F1y, F2x, F2y, ...]
     Eigen::VectorXd displacement; // displacements in x and y [u1, v1, u2, v2, ...]
     float max_stress;
     float min_stress;
-
-    float alpha = 1e15f; // penalty factor for constraints
 
     SpringSystem(const std::vector<Node> &n, const std::vector<Spring> &s) : nodes(n), springs(s)
     {
@@ -128,7 +125,6 @@ public:
         int total_dof = nodes.size() * 2; // 2 DOF per node (x and y)
         displacement = Eigen::VectorXd::Zero(total_dof);
         forces = Eigen::VectorXd::Zero(total_dof);
-        constraints = Eigen::MatrixXd::Zero(total_dof, total_dof);
 
         // step 1 - compute stiffness matrices for each spring
         // Compute spring stiffness matrices
@@ -137,32 +133,22 @@ public:
             spring.compute_stiffness(nodes);
         }
 
-        // step 2 - apply MPC constraints for slider nodes
-        for (int i = 0; i < nodes.size(); ++i)
-        {
-            if (nodes[i].constraint_type == Slider)
-            {
-                add_mpc_constraint(i);
-            }
-        }
-
-        // step 3 - assemble global stiffness matrix
+        // step 2 - assemble global stiffness matrix
         assemble_global_stiffness();
     }
 
-    // step 5 - attempt to solve the system
+    // step 3 - attempt to solve the system
     int solve_system()
     {
         int num_nodes = nodes.size();
         int total_dof = num_nodes * 2; // 2 DOF per node (x and y)
 
-        // step 6 - apply boundary conditions
-        // Identify free DOFs
+        // Identify free DOFs (not fixed nodes)
         std::vector<int> free_dof_indices;
 
         for (int i = 0; i < num_nodes; ++i)
         {
-            if ((nodes[i].constraint_type) != Fixed)
+            if (nodes[i].constraint_type != Fixed)
             {
                 free_dof_indices.push_back(i * 2);     // x DOF
                 free_dof_indices.push_back(i * 2 + 1); // y DOF
@@ -177,29 +163,122 @@ public:
             return -1;
         }
 
-        // Step 7 - Create reduced system
-        Eigen::MatrixXd reduced_k_matrix = Eigen::MatrixXd::Zero(num_free_dofs, num_free_dofs);
-        Eigen::VectorXd reduced_forces = Eigen::VectorXd::Zero(num_free_dofs);
+        // Create reduced stiffness matrix and force vector
+        Eigen::MatrixXd K_r = Eigen::MatrixXd::Zero(num_free_dofs, num_free_dofs);
+        Eigen::VectorXd F_r = Eigen::VectorXd::Zero(num_free_dofs);
 
-        // Step 8 - Build reduced stiffness matrix and force vector
         for (int i = 0; i < num_free_dofs; ++i)
         {
             for (int j = 0; j < num_free_dofs; ++j)
             {
-                reduced_k_matrix(i, j) = global_k_matrix(free_dof_indices[i], free_dof_indices[j]);
+                K_r(i, j) = global_k_matrix(free_dof_indices[i], free_dof_indices[j]);
             }
-            reduced_forces(i) = forces(free_dof_indices[i]);
+            F_r(i) = forces(free_dof_indices[i]);
         }
 
-        // Solve K * u = F
-        Eigen::VectorXd reduced_displacements = reduced_k_matrix.colPivHouseholderQr().solve(reduced_forces);
-
-        // Step 9 - Map reduced displacements back to full displacement vector
-        for (int i = 0; i < num_free_dofs; ++i)
+        // Identify slider nodes and create constraint matrix
+        std::vector<int> slider_nodes;
+        for (int i = 0; i < num_nodes; ++i)
         {
-            displacement(free_dof_indices[i]) = reduced_displacements(i);
+            if (nodes[i].constraint_type == Slider)
+                slider_nodes.push_back(i);
         }
 
+        int num_constraints = slider_nodes.size();
+
+        if (num_constraints == 0)
+        {
+            // No constraints - solve directly
+            Eigen::VectorXd u_r = K_r.fullPivLu().solve(F_r);
+
+            displacement = Eigen::VectorXd::Zero(total_dof);
+            for (int i = 0; i < num_free_dofs; ++i)
+            {
+                displacement(free_dof_indices[i]) = u_r(i);
+            }
+        }
+        else
+        {
+            // Build constraint matrix in reduced coordinates
+            Eigen::MatrixXd C_r = Eigen::MatrixXd::Zero(num_constraints, num_free_dofs);
+
+            for (int ci = 0; ci < num_constraints; ++ci)
+            {
+                int node_id = slider_nodes[ci];
+                const Node &node = nodes[node_id];
+
+                float theta = node.constraint_angle * M_PI / 180.0f;
+                float a_x = -std::sin(theta);
+                float a_y = std::cos(theta);
+
+                // Find the position of this node's DOFs in the reduced system
+                for (int j = 0; j < num_free_dofs; ++j)
+                {
+                    int global_dof = free_dof_indices[j];
+                    if (global_dof == node_id * 2)
+                    {
+                        C_r(ci, j) = a_x;
+                    }
+                    else if (global_dof == node_id * 2 + 1)
+                    {
+                        C_r(ci, j) = a_y;
+                    }
+                }
+            }
+
+            // Create augmented saddle point system
+            // [K_r   C_r^T] [u]   [F_r]
+            // [C_r    0   ] [λ] = [0  ]
+
+            int augmented_size = num_free_dofs + num_constraints;
+            Eigen::MatrixXd saddle_matrix = Eigen::MatrixXd::Zero(augmented_size, augmented_size);
+            Eigen::VectorXd saddle_rhs = Eigen::VectorXd::Zero(augmented_size);
+
+            // Fill in K_r block
+            saddle_matrix.block(0, 0, num_free_dofs, num_free_dofs) = K_r;
+
+            // Fill in C_r^T block (upper right)
+            saddle_matrix.block(0, num_free_dofs, num_free_dofs, num_constraints) = C_r.transpose();
+
+            // Fill in C_r block (lower left)
+            saddle_matrix.block(num_free_dofs, 0, num_constraints, num_free_dofs) = C_r;
+
+            // Fill in RHS
+            saddle_rhs.head(num_free_dofs) = F_r;
+            // Constraint RHS is zero (already initialized)
+
+            // Solve the augmented system
+            Eigen::VectorXd full_solution = saddle_matrix.fullPivLu().solve(saddle_rhs);
+
+            // Extract displacements (first num_free_dofs entries)
+            Eigen::VectorXd u_r = full_solution.head(num_free_dofs);
+
+            // Extract Lagrange multipliers (last num_constraints entries)
+            Eigen::VectorXd lagrange_multipliers = full_solution.tail(num_constraints);
+
+            // Map back to global displacement vector
+            displacement = Eigen::VectorXd::Zero(total_dof);
+            for (int i = 0; i < num_free_dofs; ++i)
+            {
+                displacement(free_dof_indices[i]) = u_r(i);
+            }
+
+            // Print constraint violations for debugging
+            Eigen::VectorXd constraint_check = C_r * u_r;
+            std::cout << "\nConstraint violations (should be ~0):" << std::endl;
+            for (int i = 0; i < num_constraints; ++i)
+            {
+                std::cout << "  Slider node " << slider_nodes[i] << ": " << constraint_check(i) << std::endl;
+            }
+
+            std::cout << "\nLagrange multipliers (constraint forces):" << std::endl;
+            for (int i = 0; i < num_constraints; ++i)
+            {
+                std::cout << "  Slider node " << slider_nodes[i] << ": " << lagrange_multipliers(i) << " N" << std::endl;
+            }
+        }
+
+        // Print solution
         std::cout << "\n=== SOLUTION ===" << std::endl;
         std::cout << "Displacements (m):" << std::endl;
         for (int i = 0; i < num_nodes; ++i)
@@ -208,15 +287,14 @@ public:
                       << " m, v=" << displacement(i * 2 + 1) << " m" << std::endl;
         }
 
-        // Calculate reaction forces at fixed nodes
+        // Calculate reaction forces at fixed and slider nodes
         Eigen::VectorXd reactions = global_k_matrix * displacement - forces;
         std::cout << "\nReaction Forces (N):" << std::endl;
         for (int i = 0; i < num_nodes; ++i)
         {
             if (nodes[i].constraint_type != Free)
             {
-                std::string constraint_str = (nodes[i].constraint_type == Fixed) ? "Fixed" : (nodes[i].constraint_type == Slider) ? "Slider"
-                                                                                                                                  : "Free";
+                std::string constraint_str = (nodes[i].constraint_type == Fixed) ? "Fixed" : "Slider";
                 std::cout << "  Node " << i << " (" << constraint_str << "): Fx=" << reactions(i * 2)
                           << " N, Fy=" << reactions(i * 2 + 1) << " N" << std::endl;
             }
@@ -247,7 +325,7 @@ public:
             // Axial force (negative of force at first node)
             float axial_force = -(c * element_forces(0) + s * element_forces(1));
 
-            // Stress = Force / Area, Area = 6e-4 m^2
+            // Stress = Force / Area
             spring.stress = axial_force / spring.A / 1e6; // in MPa
 
             max_stress = std::max(max_stress, spring.stress);
@@ -257,7 +335,7 @@ public:
                       << "): " << axial_force << " N" << std::endl;
         }
 
-        // calculate axial stresses in springs
+        // Print axial stresses in springs
         std::cout << "\nSpring Axial Stresses (MPa):" << std::endl;
         for (const auto &spring : springs)
         {
@@ -300,15 +378,12 @@ public:
             }
         }
 
-        // step 4 - add constraint contributions
-        global_k_matrix += constraints;
-
         std::cout << "Global Stiffness Matrix (" << total_dof << "x" << total_dof << "):\n"
                   << global_k_matrix << std::endl;
     }
 
     // MPC (Multi-Point Constraint) for slider nodes
-    void add_mpc_constraint(int node_id)
+    void generate_constraint_row(Eigen::MatrixXd &C, int row_index, int node_id)
     {
         // get the node and its angle and we can compute the MCP
         const Node &node = nodes[node_id];
@@ -322,11 +397,9 @@ public:
         int dof_x = node.id * 2;
         int dof_y = node.id * 2 + 1;
 
-        // create the constraint matrix with penalty factor alpha
-        constraints(dof_x, dof_x) += alpha * a_x * a_x;
-        constraints(dof_x, dof_y) += alpha * a_x * a_y;
-        constraints(dof_y, dof_x) += alpha * a_y * a_x;
-        constraints(dof_y, dof_y) += alpha * a_y * a_y;
+        // create the constraint row
+        C(row_index, dof_x) = a_x;
+        C(row_index, dof_y) = a_y;
     }
 };
 
@@ -479,9 +552,9 @@ int main()
 
     // Define nodes
     std::vector<Node> nodes = {
-        Node(0, 0.0f, 0.0f, Fixed),         // Fixed node at origin
-        Node(1, 0.0f, 1.0f, Slider, 270),   // Slider node
-        Node(2, 0.5f, 1.0f, Slider, 60.0f), // Slider node
+        Node(0, 0.0f, 0.0f, Fixed),                  // Fixed node at origin
+        Node(1, 0.0f, 1.0f, Slider, 360.0f - 90.0f), // Slider node
+        Node(2, 0.5f, 1.0f, Slider, 60.0f),          // Slider node
     };
 
     const double A = 6.0e-4; // Cross-sectional area in m^2
@@ -539,23 +612,6 @@ int main()
         ImGui::SliderFloat("Scale Y", &scale_y, 50.0f, 2000.0f);
 
         ImGui::Separator();
-
-        // Add section for controlling the penalty factor alpha
-        ImGui::Text("Penalty Factor for Slider Constraints:");
-        if (ImGui::InputFloat("Alpha", &spring_system.alpha, 1e2f, 1e20f, "%.1e"))
-        {
-            // Rebuild constraints and global stiffness matrix
-            spring_system.constraints.setZero();
-            for (int i = 0; i < spring_system.nodes.size(); ++i)
-            {
-                if (spring_system.nodes[i].constraint_type == Slider)
-                {
-                    spring_system.add_mpc_constraint(i);
-                }
-            }
-            spring_system.assemble_global_stiffness();
-            spring_system.solve_system();
-        }
 
         // Force controls for non-fixed nodes
         ImGui::Text("Apply Forces (N):");
