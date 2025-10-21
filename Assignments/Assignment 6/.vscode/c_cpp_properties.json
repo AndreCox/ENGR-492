@@ -4,7 +4,7 @@
       "name": "Linux",
       "includePath": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}/build/_deps/**"
+        "${workspaceFolder}/build/debug/_deps/**"
       ],
       "defines": [],
       "compilerPath": "/usr/bin/g++",

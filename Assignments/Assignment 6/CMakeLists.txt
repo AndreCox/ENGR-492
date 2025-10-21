@@ -38,7 +38,11 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(Eigen)
 
 # --- Your project executable ---
-add_executable(main src/main.cpp)
+add_executable(main src/main.cpp
+    src/spring.cpp
+    src/spring_system.cpp
+    src/graphics.cpp
+)
 
 target_link_libraries(main PRIVATE
     ImGui-SFML::ImGui-SFML
