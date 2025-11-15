@@ -11,7 +11,7 @@ class SpringSystem
 {
 public:
     // Only declare the constructor here (no inline body)
-    SpringSystem(const std::vector<Node> &n, const std::vector<Spring> &s);
+    SpringSystem(std::vector<Node> &n, std::vector<Spring> &s);
 
     void generate_constraint_row(Eigen::MatrixXd &C, int row_index, int node_id, const std::vector<int> &free_dof_indices);
     int solve_system();

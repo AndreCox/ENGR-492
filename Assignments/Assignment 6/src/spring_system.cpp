@@ -1,6 +1,6 @@
 #include "spring_system.h"
 
-SpringSystem::SpringSystem(const std::vector<Node> &n, const std::vector<Spring> &s)
+SpringSystem::SpringSystem(std::vector<Node> &n, std::vector<Spring> &s)
     : nodes(n), springs(s), max_stress(0.0f), min_stress(0.0f)
 {
     // Resize displacement and forces vectors
@@ -126,7 +126,7 @@ int SpringSystem::solve_system()
         }
 
         // Scale the constraints to match the stiffness matrix magnitude for better conditioning
-        double k_scale = K_r.norm();
+        double k_scale = K_r.norm() / 20.0;
         double constraint_scale = (k_scale > 0.0) ? k_scale : 1.0;
         Eigen::MatrixXd C_r_scaled = C_r * constraint_scale;
 

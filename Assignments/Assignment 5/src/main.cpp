@@ -65,7 +65,7 @@ public:
         float c = dx / length; // cos(theta)
         float s = dy / length; // sin(theta)
 
-        // Global stiffness matrix for a 2D truss element
+        // local stiffness matrix for a 2D truss element
         float c2 = c * c;
         float s2 = s * s;
         float cs = c * s;
@@ -138,6 +138,14 @@ public:
                 reduced_k_matrix(i, j) = global_k_matrix(free_dof_indices[i], free_dof_indices[j]);
             reduced_forces(i) = forces(free_dof_indices[i]);
         }
+
+        std::cout << "\nFree DOF indices: ";
+        for (int idx : free_dof_indices)
+            std::cout << idx << " ";
+        std::cout << "\n\nReduced K matrix:\n"
+                  << reduced_k_matrix << std::endl;
+        std::cout << "\nReduced forces:\n"
+                  << reduced_forces << std::endl;
 
         // Solve K * u = F
         Eigen::VectorXf reduced_displacements = reduced_k_matrix.colPivHouseholderQr().solve(reduced_forces);
@@ -358,6 +366,12 @@ int main()
     {
         std::cout << "  Node " << i << ": Fx=" << spring_system.forces(i * 2)
                   << " N, Fy=" << spring_system.forces(i * 2 + 1) << " N" << std::endl;
+    }
+
+    for (const auto &spring : springs)
+    {
+        std::cout << "Spring " << spring.id << ": nodes "
+                  << spring.nodes[0] << " → " << spring.nodes[1] << std::endl;
     }
 
     spring_system.solve_system();
