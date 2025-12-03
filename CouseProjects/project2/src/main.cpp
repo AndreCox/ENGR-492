@@ -39,13 +39,18 @@ int main()
         return -1;
     }
 
+    GraphicsRenderer renderer;
+
+    ImGuiIO &io = ImGui::GetIO();
+    float dpiScale = renderer.GetDPIScale(window.getNativeHandle());
+    io.FontGlobalScale = 1.8f;             // Scale text
+    ImGui::GetStyle().ScaleAllSizes(1.8f); // Scale widgets
+
     // Create a view for high-DPI / automatic scaling
     sf::View view;
     view.setSize(sf::Vector2f(worldWidth, -worldHeight));
     view.setCenter(sf::Vector2f(worldWidth / 2.f, -worldHeight / 2.f));
     window.setView(view);
-
-    GraphicsRenderer renderer;
 
     sf::Clock deltaClock;
 
@@ -134,7 +139,6 @@ int main()
             {
                 if (const auto *wheel = event->getIf<sf::Event::MouseWheelScrolled>())
                 {
-                    std::cout << "Mouse wheel delta: " << wheel->delta << std::endl;
                     if (wheel->delta > 0)
                         zoom = std::max(0.01f, zoom * 0.9f); // zoom in (clamped)
                     else

@@ -155,11 +155,11 @@ int SpringSystem::solve_system()
         // Fill in RHS
         saddle_rhs.head(num_free_dofs) = F_r;
 
-        // Debugging to determine the condition number if this is
-        // stupid high we know the system is ill-conditioned
-        Eigen::JacobiSVD<Eigen::MatrixXd> svd(saddle_matrix);
-        double cond = svd.singularValues()(0) / svd.singularValues().tail(1)(0);
-        std::cout << "Saddle approx cond num: " << cond << std::endl;
+        // print out the saddle matrix and rhs for debugging
+        std::cout << "Saddle Point Matrix (" << augmented_size << "x" << augmented_size << "):\n"
+                  << saddle_matrix << std::endl;
+        std::cout << "Saddle Point RHS:\n"
+                  << saddle_rhs << std::endl;
 
         // Solve the saddle point system
         Eigen::VectorXd full_solution = saddle_matrix.fullPivLu().solve(saddle_rhs);

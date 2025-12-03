@@ -23,6 +23,8 @@ private:
 public:
     GraphicsRenderer();
 
+    float GetDPIScale(sf::WindowHandle handle);
+
     void setView(sf::RenderWindow &window);
 
     void drawSystem(sf::RenderWindow &window, const SpringSystem &system) const;

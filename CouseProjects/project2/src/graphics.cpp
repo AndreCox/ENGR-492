@@ -43,6 +43,76 @@ GraphicsRenderer::GraphicsRenderer()
 {
 }
 
+float GraphicsRenderer::GetDPIScale(sf::WindowHandle handle)
+{
+    // -----------------------------
+    // WINDOWSW
+    // -----------------------------
+#if defined(_WIN32)
+    UINT dpi = GetDpiForWindow(handle);
+    return dpi / 96.0f;
+
+    // -----------------------------
+    // MACOS
+    // -----------------------------
+#elif defined(__APPLE__)
+    // macOS always uses 72 DPI as base, scale is backingScaleFactor
+    float scale = [[NSScreen mainScreen] backingScaleFactor];
+    return scale;
+
+    // -----------------------------
+    // LINUX (X11)
+    // -----------------------------
+#elif defined(__linux__) && defined(SFML_SYSTEM_X11)
+    Display *dpy = XOpenDisplay(nullptr);
+    if (!dpy)
+        return 1.0f;
+
+    char *res = XResourceManagerString(dpy);
+    if (!res)
+    {
+        XCloseDisplay(dpy);
+        return 1.0f;
+    }
+
+    XrmDatabase db = XrmGetStringDatabase(res);
+    XrmValue value;
+    char *type = nullptr;
+
+    if (XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &type, &value))
+    {
+        float dpi = atof(value.addr);
+        XCloseDisplay(dpy);
+        return dpi / 96.0f;
+    }
+
+    XCloseDisplay(dpy);
+    return 1.0f;
+
+    // -----------------------------
+    // LINUX (WAYLAND — fallback)
+    // -----------------------------
+#elif defined(__linux__)
+    // Wayland does not give DPI easily; use scaling factor
+    const char *wlScale = getenv("QT_SCALE_FACTOR");
+    if (wlScale)
+        return atof(wlScale);
+
+    wlScale = getenv("GDK_SCALE"); // GNOME / GTK
+    if (wlScale)
+        return atof(wlScale);
+
+    wlScale = getenv("XCURSOR_SIZE"); // fallback
+    if (wlScale)
+        return atof(wlScale) / 24.0f;
+
+    return 1.0f;
+
+#else
+    return 1.0f;
+#endif
+}
+
 void GraphicsRenderer::drawThickLine(sf::RenderTarget &target,
                                      const sf::Vector2f &a,
                                      const sf::Vector2f &b,
