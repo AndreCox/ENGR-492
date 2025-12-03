@@ -9,15 +9,23 @@
 class GraphicsRenderer
 {
 private:
-    float scale_x;
-    float scale_y;
+    // Global dimensions for the world
+    // Used for high dpi scaling and centering
+    float worldWidth;
+    float worldHeight;
+
+    void drawThickLine(sf::RenderTarget &target,
+                       const sf::Vector2f &a,
+                       const sf::Vector2f &b,
+                       float thickness,
+                       const sf::Color &color) const;
 
 public:
-    GraphicsRenderer(float scale_x, float scale_y);
+    GraphicsRenderer();
 
-    void setScale(float sx, float sy);
+    void setView(sf::RenderWindow &window);
 
-    void drawSystem(sf::RenderWindow &window, const SpringSystem &system, float offset_x, float offset_y) const;
+    void drawSystem(sf::RenderWindow &window, const SpringSystem &system) const;
 
     sf::Color getStressColor(float stress, float min_stress, float max_stress) const;
 };

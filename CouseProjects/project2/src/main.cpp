@@ -19,9 +19,14 @@
 #include "spring_system.h"
 #include "graphics.h"
 
-float scale_x = 1000;
-float scale_y = 400;
-float scales[2] = {scale_x, scale_y};
+float worldWidth = 1.2f;  // in meters
+float worldHeight = 1.2f; // in meters
+
+sf::Vector2f viewCenter(worldWidth - 0.5, worldHeight / 2.0);
+float panSpeed = 0.01f;
+float zoom = 1.0f;
+sf::Vector2i lastMousePos;
+bool isDragging = false;
 
 int main()
 {
@@ -34,7 +39,13 @@ int main()
         return -1;
     }
 
-    GraphicsRenderer renderer = GraphicsRenderer(scale_x, scale_y);
+    // Create a view for high-DPI / automatic scaling
+    sf::View view;
+    view.setSize(sf::Vector2f(worldWidth, -worldHeight));
+    view.setCenter(sf::Vector2f(worldWidth / 2.f, -worldHeight / 2.f));
+    window.setView(view);
+
+    GraphicsRenderer renderer;
 
     sf::Clock deltaClock;
 
@@ -117,6 +128,19 @@ int main()
                     window.close();
                 }
             }
+
+            // Mouse wheel zooming
+            if (!ImGui::GetIO().WantCaptureMouse)
+            {
+                if (const auto *wheel = event->getIf<sf::Event::MouseWheelScrolled>())
+                {
+                    std::cout << "Mouse wheel delta: " << wheel->delta << std::endl;
+                    if (wheel->delta > 0)
+                        zoom = std::max(0.01f, zoom * 0.9f); // zoom in (clamped)
+                    else
+                        zoom = std::min(100.0f, zoom * 1.1f); // zoom out (clamped)
+                }
+            }
         }
 
         ImGui::SFML::Update(window, deltaClock.restart());
@@ -124,15 +148,6 @@ int main()
         ImGui::Begin("System Controls");
 
         ImGui::Text("2D Truss System Solver");
-        ImGui::Separator();
-
-        // Scaling controls
-        if (ImGui::SliderFloat("Scale X", &scale_x, 50.0f, 2000.0f) ||
-            ImGui::SliderFloat("Scale Y", &scale_y, 50.0f, 2000.0f))
-        {
-            renderer.setScale(scale_x, scale_y);
-        }
-
         ImGui::Separator();
 
         // Force controls for non-fixed nodes
@@ -254,22 +269,59 @@ int main()
         static float origin_y = 300.0f;
 
         // Draw the system
-        renderer.drawSystem(window, spring_system, origin_x, origin_y);
+        renderer.drawSystem(window, spring_system);
 
-        // let the user drag the origin with the mouse, only if clicking near the origin
-        if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
+        // Mouse-based panning
+        if (!ImGui::GetIO().WantCaptureMouse)
         {
-            sf::Vector2i mouse_pos = sf::Mouse::getPosition(window);
-            float distance_to_origin = std::sqrt(std::pow(mouse_pos.x - origin_x, 2) + std::pow(mouse_pos.y - origin_y, 2));
-
-            // Allow dragging only if the mouse is within a certain radius of the origin
-            const float drag_radius = 20.0f; // Radius in pixels
-            if (distance_to_origin <= drag_radius)
+            if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
             {
-                origin_x = static_cast<float>(mouse_pos.x);
-                origin_y = static_cast<float>(mouse_pos.y);
+                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+
+                if (!isDragging)
+                {
+                    lastMousePos = mousePos;
+                    isDragging = true;
+                }
+
+                // Convert pixel delta into world delta using the current view
+                sf::Vector2f worldLast = window.mapPixelToCoords(lastMousePos);
+                sf::Vector2f worldNow = window.mapPixelToCoords(mousePos);
+
+                sf::Vector2f delta = worldLast - worldNow;
+
+                viewCenter += delta;
+                lastMousePos = mousePos;
+            }
+            else
+            {
+                isDragging = false;
             }
         }
+
+        // -------------------------
+        // Aspect-correct view
+        // -------------------------
+        sf::Vector2u windowSize = window.getSize();
+        float windowAspect = static_cast<float>(windowSize.x) / windowSize.y;
+        float worldAspect = worldWidth / worldHeight;
+
+        sf::Vector2f viewSize;
+        if (windowAspect >= worldAspect)
+        {
+            viewSize.y = worldHeight * zoom;
+            viewSize.x = viewSize.y * windowAspect;
+        }
+        else
+        {
+            viewSize.x = worldWidth * zoom;
+            viewSize.y = viewSize.x / windowAspect;
+        }
+
+        sf::View view;
+        view.setCenter(viewCenter);
+        view.setSize(sf::Vector2f(viewSize.x, -viewSize.y)); // negative y = y-up
+        window.setView(view);
 
         ImGui::SFML::Render(window);
         window.display();
