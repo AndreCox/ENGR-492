@@ -1,4 +1,5 @@
 {
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
   "files.associations": {
     "array": "cpp",
     "atomic": "cpp",
@@ -79,6 +80,8 @@
     "thread": "cpp",
     "cinttypes": "cpp",
     "valarray": "cpp",
-    "core": "cpp"
+    "core": "cpp",
+    "forward_list": "cpp",
+    "typeindex": "cpp"
   }
 }

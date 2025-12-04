@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(ImGuiSFMLExample)
 set(CMAKE_CXX_STANDARD 17)
 include(FetchContent)
@@ -51,3 +52,7 @@ target_link_libraries(main PRIVATE
     sfml-system
     Eigen3::Eigen
 )
+
+add_custom_command(TARGET main POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/resources $<TARGET_FILE_DIR:main>/resources)

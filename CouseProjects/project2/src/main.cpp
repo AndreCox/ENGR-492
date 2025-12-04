@@ -19,20 +19,11 @@
 #include "spring_system.h"
 #include "graphics.h"
 
-float worldWidth = 1.2f;  // in meters
-float worldHeight = 1.2f; // in meters
-
-sf::Vector2f viewCenter(worldWidth - 0.5, worldHeight / 2.0);
-float panSpeed = 0.01f;
-float zoom = 1.0f;
-sf::Vector2i lastMousePos;
-bool isDragging = false;
-
 int main()
 {
     sf::Vector2u window_size(1200, 600);
-
     sf::RenderWindow window(sf::VideoMode(window_size), "2D Spring System Visualization");
+
     if (!ImGui::SFML::Init(window))
     {
         std::cerr << "Failed to initialize ImGui-SFML" << std::endl;
@@ -41,57 +32,42 @@ int main()
 
     GraphicsRenderer renderer;
 
+    // Initialize the renderer
+    renderer.initialize(1.2f, 1.2f);
+
     ImGuiIO &io = ImGui::GetIO();
     float dpiScale = renderer.GetDPIScale(window.getNativeHandle());
     io.FontGlobalScale = 1.8f;             // Scale text
     ImGui::GetStyle().ScaleAllSizes(1.8f); // Scale widgets
 
-    // Create a view for high-DPI / automatic scaling
-    sf::View view;
-    view.setSize(sf::Vector2f(worldWidth, -worldHeight));
-    view.setCenter(sf::Vector2f(worldWidth / 2.f, -worldHeight / 2.f));
-    window.setView(view);
-
     sf::Clock deltaClock;
 
-    const double A = 6.0e-4; // Cross-sectional area in m^2
-    const double E = 210e9;  // Young's modulus in Pa
-
-    // Define springs
-    std::vector<Spring> springs = {
-        Spring(0, 0, 1, A, E),
-        Spring(1, 1, 2, A, E),
-        Spring(2, 2, 0, A, E),
-    };
-
-    // Define nodes
+    // Course Project 2 Example
     std::vector<Node> nodes = {
-        Node(0, 0.0f, 0.0f, Fixed),           // Fixed node at origin
-        Node(1, 0.0f, 1.0f, Slider, 90.0f),   // Slider node - vertical slider (allows up/down movement)
-        Node(2, 0.577f, 1.0f, Slider, 60.0f), // Slider node - 60° slider (allows movement along 60° line)
+        Node(12.0f, 0.0f, Free),
+        Node(12.0f, 6.0f, Free),
+        Node(0.0f, 0.0f, Slider, 90.0f),
+        Node(0.0f, 10.0f, Fixed),
     };
 
-    // std::vector<Node> nodes = {
-    //     Node(0, 0.0f, 0.0f, Fixed),
-    //     Node(1, 1.0f, 0.0f, Free),
-    //     Node(2, 1.0f, 0.57735f, Free),
-    //     Node(3, 0.0f, 0.57735f, Fixed),
-    // };
+    const double A_steel = 0.1963;    // in^2
+    const double A_aluminum = 0.1257; // in^2
+    const double E_steel = 30e6;      // Psi
+    const double E_aluminum = 10e6;   // Psi
 
-    // const double A = 6.0e-4;
-    // const double E = 210e9;
-
-    // std::vector<Spring> springs = {
-    //     Spring(0, 0, 1, A, E),
-    //     Spring(1, 1, 2, A, E),
-    //     Spring(2, 2, 0, A, E),
-    //     Spring(3, 2, 3, A, E),
-    // };
+    std::vector<Spring> springs = {
+        Spring(0, 1, A_steel, E_steel),
+        Spring(0, 2, A_aluminum, E_aluminum),
+        Spring(1, 2, A_steel, E_steel),
+        Spring(1, 3, A_aluminum, E_aluminum),
+        Spring(2, 3, A_steel, E_steel),
+    };
 
     std::cout << "\n=== NODE CONFIGURATION ===" << std::endl;
+    int index = 0;
     for (const auto &node : nodes)
     {
-        std::cout << "Node " << node.id << ": position=(" << node.position[0] << ", " << node.position[1] << "), ";
+        std::cout << "Node " << index << ": position=(" << node.position[0] << ", " << node.position[1] << "), ";
         if (node.constraint_type == Fixed)
             std::cout << "FIXED";
         else if (node.constraint_type == Slider)
@@ -99,15 +75,22 @@ int main()
         else
             std::cout << "FREE";
         std::cout << std::endl;
+        ++index;
     }
 
     SpringSystem spring_system(nodes, springs);
 
-    // Apply a 400 kN downward force at node 2
-    spring_system.forces(2 * 2 + 1) = -400000.0f; // Fy at node 2 (negative = downward)
-    // spring_system.forces(2 * 2) = 400000.0f;
+    // Course Project 2 Loads
+    spring_system.forces(0 * 2) = -1000.0;
+    spring_system.forces(0 * 2 + 1) = -1732.0;
 
-    std::cout << "\nApplied Forces (N):" << std::endl;
+    // Apply a 400 kN downward force at node 2
+    // spring_system.forces(2 * 2 + 1) = -4.0e5; // Fy at node 1 (negative = downward)
+    // spring_system.forces(1 * 2 + 1) = -5.0e5; // Fy at node 2 (negative = downward)
+    // spring_system.forces(2 * 2) = 4.0e5;      // Fy at node 3 (negative = downward)
+
+    std::cout
+        << "\nApplied Forces (N):" << std::endl;
     for (int i = 0; i < nodes.size(); ++i)
     {
         std::cout << "  Node " << i << ": Fx=" << spring_system.forces(i * 2)
@@ -135,16 +118,7 @@ int main()
             }
 
             // Mouse wheel zooming
-            if (!ImGui::GetIO().WantCaptureMouse)
-            {
-                if (const auto *wheel = event->getIf<sf::Event::MouseWheelScrolled>())
-                {
-                    if (wheel->delta > 0)
-                        zoom = std::max(0.01f, zoom * 0.9f); // zoom in (clamped)
-                    else
-                        zoom = std::min(100.0f, zoom * 1.1f); // zoom out (clamped)
-                }
-            }
+            renderer.handleEvent(window, *event, ImGui::GetIO().WantCaptureMouse);
         }
 
         ImGui::SFML::Update(window, deltaClock.restart());
@@ -254,11 +228,13 @@ int main()
         // Display spring stresses with color legend
         ImGui::Text("Spring Stresses (MPa):");
         ImGui::Text("Blue = Compression, Red = Tension");
+        int index = 0;
         for (const auto &spring : spring_system.springs)
         {
             sf::Color color = renderer.getStressColor(spring.stress, spring_system.min_stress, spring_system.max_stress);
             ImGui::TextColored(ImVec4(color.r / 255.0f, color.g / 255.0f, color.b / 255.0f, 1.0f),
-                               "Spring %d: %.2f MPa", spring.id, spring.stress);
+                               "Spring %d: %.2f MPa", index, spring.stress);
+            ++index;
         }
 
         ImGui::Separator();
@@ -269,63 +245,14 @@ int main()
 
         window.clear(sf::Color(30, 30, 30));
 
-        static float origin_x = 100.0f;
-        static float origin_y = 300.0f;
+        // Update panning
+        renderer.updatePanning(window, ImGui::GetIO().WantCaptureMouse);
 
-        // Draw the system
+        // Update and apply view
+        renderer.updateView(window);
+
+        // Draw the spring system
         renderer.drawSystem(window, spring_system);
-
-        // Mouse-based panning
-        if (!ImGui::GetIO().WantCaptureMouse)
-        {
-            if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
-            {
-                sf::Vector2i mousePos = sf::Mouse::getPosition(window);
-
-                if (!isDragging)
-                {
-                    lastMousePos = mousePos;
-                    isDragging = true;
-                }
-
-                // Convert pixel delta into world delta using the current view
-                sf::Vector2f worldLast = window.mapPixelToCoords(lastMousePos);
-                sf::Vector2f worldNow = window.mapPixelToCoords(mousePos);
-
-                sf::Vector2f delta = worldLast - worldNow;
-
-                viewCenter += delta;
-                lastMousePos = mousePos;
-            }
-            else
-            {
-                isDragging = false;
-            }
-        }
-
-        // -------------------------
-        // Aspect-correct view
-        // -------------------------
-        sf::Vector2u windowSize = window.getSize();
-        float windowAspect = static_cast<float>(windowSize.x) / windowSize.y;
-        float worldAspect = worldWidth / worldHeight;
-
-        sf::Vector2f viewSize;
-        if (windowAspect >= worldAspect)
-        {
-            viewSize.y = worldHeight * zoom;
-            viewSize.x = viewSize.y * windowAspect;
-        }
-        else
-        {
-            viewSize.x = worldWidth * zoom;
-            viewSize.y = viewSize.x / windowAspect;
-        }
-
-        sf::View view;
-        view.setCenter(viewCenter);
-        view.setSize(sf::Vector2f(viewSize.x, -viewSize.y)); // negative y = y-up
-        window.setView(view);
 
         ImGui::SFML::Render(window);
         window.display();

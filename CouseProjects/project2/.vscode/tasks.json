@@ -50,6 +50,58 @@
         "isDefault": false
       },
       "problemMatcher": ["$gcc"]
+    },
+
+    // Release configuration and build tasks
+    {
+      "label": "Configure Release",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S",
+        "${workspaceFolder}",
+        "-B",
+        "${workspaceFolder}/build/release",
+        "-DCMAKE_BUILD_TYPE=Release"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build Release",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build/release",
+        "--config",
+        "Release",
+        "--",
+        "-j8"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "dependsOn": "Configure Release",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Build Release (Quick)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build/release",
+        "--config",
+        "Release",
+        "--",
+        "-j8"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      },
+      "problemMatcher": ["$gcc"]
     }
   ]
 }

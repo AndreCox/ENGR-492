@@ -21,9 +21,9 @@ SpringSystem::SpringSystem(std::vector<Node> &n, std::vector<Spring> &s)
 // MPC (Multi-Point Constraint) for slider nodes
 // This generates a constraint equation: a_x * u + a_y * v = 0
 // which means displacement perpendicular to the slider direction is zero
-void SpringSystem::generate_constraint_row(Eigen::MatrixXd &C, int row_index, int node_id, const std::vector<int> &free_dof_indices)
+void SpringSystem::generate_constraint_row(Eigen::MatrixXd &C, int row_index, int index, const std::vector<int> &free_dof_indices)
 {
-    const Node &node = nodes[node_id];
+    const Node &node = nodes[index];
     if (node.constraint_type != Slider)
         return; // MPC only for slider nodes
 
@@ -34,8 +34,8 @@ void SpringSystem::generate_constraint_row(Eigen::MatrixXd &C, int row_index, in
     double a_x = std::cos(normal_angle);
     double a_y = std::sin(normal_angle);
 
-    int dof_x = node.id * 2;
-    int dof_y = node.id * 2 + 1;
+    int dof_x = index * 2;
+    int dof_y = index * 2 + 1;
 
     // this is essentially calculating a_x * u_dof + a_y * v_dof = 0
 
@@ -122,65 +122,95 @@ int SpringSystem::solve_system()
     else
     {
         // Build constraint matrix in reduced coordinates using generate_constraint_row
+
         Eigen::MatrixXd C_r = Eigen::MatrixXd::Zero(num_constraints, num_free_dofs);
 
         for (int ci = 0; ci < num_constraints; ++ci)
+
         {
+
             int node_id = slider_nodes[ci];
+
             generate_constraint_row(C_r, ci, node_id, free_dof_indices);
         }
 
         std::cout << "Constraint Matrix C_r (" << num_constraints << "x" << num_free_dofs << "):\n"
+
                   << C_r << std::endl;
 
         // Scale the constraints to match the stiffness matrix magnitude for better conditioning
+
         double k_scale = K_r.norm();
+
         double constraint_scale = (k_scale > 0.0) ? k_scale : 1.0;
+
         Eigen::MatrixXd C_r_scaled = C_r * constraint_scale;
 
         // Create augmented saddle point system
+
         int augmented_size = num_free_dofs + num_constraints;
+
         Eigen::MatrixXd saddle_matrix = Eigen::MatrixXd::Zero(augmented_size, augmented_size);
+
         Eigen::VectorXd saddle_rhs = Eigen::VectorXd::Zero(augmented_size);
 
         // Fill in K_r block
+
         saddle_matrix.block(0, 0, num_free_dofs, num_free_dofs) = K_r;
 
         // Fill in scaled C_r^T block (upper right)
+
         saddle_matrix.block(0, num_free_dofs, num_free_dofs, num_constraints) = C_r_scaled.transpose();
 
         // Fill in scaled C_r block (lower left)
+
         saddle_matrix.block(num_free_dofs, 0, num_constraints, num_free_dofs) = C_r_scaled;
 
         // Fill in RHS
+
         saddle_rhs.head(num_free_dofs) = F_r;
 
-        // print out the saddle matrix and rhs for debugging
-        std::cout << "Saddle Point Matrix (" << augmented_size << "x" << augmented_size << "):\n"
-                  << saddle_matrix << std::endl;
-        std::cout << "Saddle Point RHS:\n"
-                  << saddle_rhs << std::endl;
+        // Debugging to determine the condition number if this is
+
+        // stupid high we know the system is ill-conditioned
+
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(saddle_matrix);
+
+        double cond = svd.singularValues()(0) / svd.singularValues().tail(1)(0);
+
+        std::cout << "Saddle approx cond num: " << cond << std::endl;
 
         // Solve the saddle point system
+
         Eigen::VectorXd full_solution = saddle_matrix.fullPivLu().solve(saddle_rhs);
 
         if (full_solution.size() != augmented_size)
+
         {
+
             std::cerr << "Saddle point solver failed or returned unexpected size." << std::endl;
+
             return -2;
         }
 
         // Extract reduced displacements and (scaled) Lagrange multipliers
+
         Eigen::VectorXd u_r = full_solution.head(num_free_dofs);
+
         Eigen::VectorXd lagrange_multipliers_scaled = full_solution.tail(num_constraints);
 
         // Unscale Lagrange multipliers back
+
         Eigen::VectorXd lagrange_multipliers = lagrange_multipliers_scaled * constraint_scale;
 
         // Map back to global displacement vector
+
         displacement = Eigen::VectorXd::Zero(total_dof);
+
         for (int i = 0; i < num_free_dofs; ++i)
+
         {
+
             displacement(free_dof_indices[i]) = u_r(i);
         }
     }
@@ -246,6 +276,7 @@ int SpringSystem::solve_system()
     max_stress = -1e10f;
     min_stress = 1e10f;
 
+    int index = 0;
     for (auto &spring : springs)
     {
         int n1 = spring.nodes[0];
@@ -267,19 +298,22 @@ int SpringSystem::solve_system()
         double axial_force = -(c * element_forces(0) + s * element_forces(1));
 
         // Stress = Force / Area (convert to MPa if area in mm^2 — keep consistent with your units)
-        spring.stress = static_cast<double>(axial_force / spring.A / 1e6); // MPa
+        spring.stress = static_cast<double>(axial_force / spring.A); // PSI
 
         max_stress = std::max(max_stress, spring.stress);
         min_stress = std::min(min_stress, spring.stress);
 
-        std::cout << "  Spring " << spring.id << " (nodes " << n1 << "-" << n2 << "): " << axial_force << " N\n";
+        std::cout << "  Spring " << index << " (nodes " << n1 << "-" << n2 << "): " << axial_force << " N\n";
+        ++index;
     }
 
     std::cout << "\nSpring Axial Stresses (MPa):\n";
+    index = 0;
     for (const auto &spring : springs)
     {
-        std::cout << "  Spring " << spring.id << " (nodes " << spring.nodes[0] << "-" << spring.nodes[1]
+        std::cout << "  Spring " << index << " (nodes " << spring.nodes[0] << "-" << spring.nodes[1]
                   << "): " << spring.stress << " MPa\n";
+        ++index;
     }
 
     std::cout << "\nStress Range: " << min_stress << " to " << max_stress << " MPa\n";

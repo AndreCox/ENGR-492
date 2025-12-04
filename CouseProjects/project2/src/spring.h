@@ -6,14 +6,13 @@
 class Spring
 {
 public:
-    Spring(int i, int n1, int n2, double A, double E) : id(i), A(A), E(E)
+    Spring(int n1, int n2, double A, double E) : A(A), E(E)
     {
         nodes[0] = n1;
         nodes[1] = n2;
         stress = 0.0f;
     }
 
-    int id;
     int nodes[2]; // node indices
     double k;     // stiffness (EA/L)
     float stress; // axial stress in MPa
