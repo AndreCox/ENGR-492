@@ -4,7 +4,7 @@ GraphicsRenderer::GraphicsRenderer()
     : worldWidth(1.2f),
       worldHeight(1.2f),
       viewCenter(worldWidth / 2.0f, worldHeight / 2.0f),
-      zoom(1.0f),
+      zoom(20.0f),
       isDragging(false),
       isFocused(true),
       dragStartedInside(false),
@@ -427,7 +427,7 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window, const SpringSystem &
 
         // Draw text label in world coordinates
         sf::Text labelText(font);
-        labelText.setString(std::to_string(index));
+        labelText.setString(std::to_string(index + 1));
         labelText.setCharacterSize(25); // Scale with zoom
         labelText.setStyle(sf::Text::Bold);
         labelText.setFillColor(sf::Color::White);

@@ -21,6 +21,7 @@ public:
     Eigen::MatrixXd global_k_matrix;
     Eigen::VectorXd forces;       // forces in x and y directions [F1x, F1y, F2x, F2y, ...]
     Eigen::VectorXd displacement; // displacements in x and y [u1, v1, u2, v2, ...]
+    int total_dof;
     float max_stress;
     float min_stress;
 };

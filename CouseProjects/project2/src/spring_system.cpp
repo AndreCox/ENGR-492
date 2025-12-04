@@ -4,18 +4,9 @@ SpringSystem::SpringSystem(std::vector<Node> &n, std::vector<Spring> &s)
     : nodes(n), springs(s), max_stress(0.0f), min_stress(0.0f)
 {
     // Resize displacement and forces vectors
-    int total_dof = static_cast<int>(nodes.size()) * 2; // 2 DOF per node (x and y)
+    total_dof = static_cast<int>(nodes.size()) * 2; // 2 DOF per node (x and y)
     displacement = Eigen::VectorXd::Zero(total_dof);
     forces = Eigen::VectorXd::Zero(total_dof);
-
-    // step 1 - compute stiffness matrices for each spring
-    for (auto &spring : springs)
-    {
-        spring.compute_stiffness(nodes);
-    }
-
-    // step 2 - assemble global stiffness matrix
-    assemble_global_stiffness();
 }
 
 // MPC (Multi-Point Constraint) for slider nodes
@@ -53,11 +44,27 @@ void SpringSystem::generate_constraint_row(Eigen::MatrixXd &C, int row_index, in
     }
 }
 
-// step 3 - attempt to solve the system
+//  attempt to solve the system
 int SpringSystem::solve_system()
 {
     int num_nodes = static_cast<int>(nodes.size());
-    int total_dof = num_nodes * 2; // 2 DOF per node (x and y)
+    if (num_nodes * 2 != total_dof) // check if total_dof needs updating
+    {
+
+        total_dof = static_cast<int>(nodes.size()) * 2; // 2 DOF per node (x and y)
+        // shift the existing vectors to match new size
+        displacement.conservativeResize(total_dof);
+        forces.conservativeResize(total_dof);
+    }
+
+    // step 1 - compute stiffness matrices for each spring
+    for (auto &spring : springs)
+    {
+        spring.compute_stiffness(nodes);
+    }
+
+    // step 2 - assemble global stiffness matrix
+    assemble_global_stiffness();
 
     // Identify free DOFs (not fixed nodes)
     std::vector<int> free_dof_indices;

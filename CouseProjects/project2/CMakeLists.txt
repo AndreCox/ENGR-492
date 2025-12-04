@@ -43,6 +43,7 @@ add_executable(main src/main.cpp
     src/spring.cpp
     src/spring_system.cpp
     src/graphics.cpp
+    src/gui_handler.cpp
 )
 
 target_link_libraries(main PRIVATE
