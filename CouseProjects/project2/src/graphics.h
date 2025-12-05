@@ -3,7 +3,7 @@
 #include <vector>
 #include <cmath>
 #include <algorithm>
-#include "spring_system.h"
+#include "fem_system.h"
 
 class GraphicsRenderer
 {
@@ -13,7 +13,7 @@ private:
     float worldHeight;
 
     // Spring system
-    const SpringSystem &system;
+    const FEMSystem &system;
 
     // View management
     sf::Vector2f viewCenter;
@@ -42,7 +42,7 @@ private:
     float getViewScale(const sf::RenderWindow &window) const;
 
 public:
-    GraphicsRenderer(SpringSystem const &system);
+    GraphicsRenderer(FEMSystem const &system);
 
     // Initialize world dimensions
     void initialize(float width, float height);

@@ -3,8 +3,8 @@
 #include <vector>
 #include <Eigen/Eigen>
 #include "node.h"
-#include "spring.h"
-#include "material_profile.h"
+#include "beam.h"
+#include "beam_props.h"
 #include <iostream>
 #include <cmath>
 
@@ -14,10 +14,10 @@ enum UnitSystem
     Metric
 };
 
-class SpringSystem
+class FEMSystem
 {
 public:
-    SpringSystem(std::vector<Node> &n, std::vector<Spring> &s, std::vector<BeamProperties> &props);
+    FEMSystem(std::vector<Node> &n, std::vector<Beam> &s, std::vector<MaterialProfile> &materials, std::vector<BeamProfile> &beam_profiles);
 
     UnitSystem unit_system = Imperial;
 
@@ -26,8 +26,9 @@ public:
     void assemble_global_stiffness();
 
     std::vector<Node> nodes;
-    std::vector<Spring> springs;
-    std::vector<BeamProperties> beam_properties;
+    std::vector<Beam> beams;
+    std::vector<MaterialProfile> materials_list;
+    std::vector<BeamProfile> beam_profiles_list;
     Eigen::MatrixXd global_k_matrix;
     Eigen::VectorXd forces;       // forces in x and y directions [F1x, F1y, F2x, F2y, ...]
     Eigen::VectorXd displacement; // displacements in x and y [u1, v1, u2, v2, ...]

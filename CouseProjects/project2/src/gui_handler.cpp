@@ -2,33 +2,116 @@
 #include <imgui-SFML.h>
 #include <fstream>
 #include <cstdint>
+#include "serialization.h"
 
-GUIHandler::GUIHandler(SpringSystem &system, GraphicsRenderer &renderer, sf::RenderWindow &window)
-    : window(window), spring_system(system), renderer(renderer), show_system_controls(true), show_node_editor(false), show_spring_editor(false)
+GUIHandler::GUIHandler(FEMSystem &system, GraphicsRenderer &renderer, sf::RenderWindow &window)
+    : window(window), fem_system(system), renderer(renderer),
+      show_system_controls(true), show_node_editor(false), show_beam_editor(false)
+{
+
+    float detected = 1.0f;
+    try
+    {
+        detected = renderer.GetDPIScale(window.getNativeHandle());
+    }
+    catch (...)
+    {
+        // fallback to 1.0
+        detected = 1.0f;
+    }
+
+    applyDPIScale(detected);
+}
+
+void GUIHandler::reloadFontsForDPI(float dpiScale)
 {
     ImGuiIO &io = ImGui::GetIO();
-    float dpiScale = renderer.GetDPIScale(window.getNativeHandle());
-    std::cout << "DPI Scale: " << dpiScale << std::endl;
-    io.FontGlobalScale = dpiScale;             // Scale text
-    ImGui::GetStyle().ScaleAllSizes(dpiScale); // Scale widgets
+    float font_size = 16.0f * current_dpi_scale;
+    io.Fonts->Clear();
+
+    ImFont *roboto = io.Fonts->AddFontFromFileTTF("resources/fonts/Roboto-Regular.ttf", font_size);
+    if (!roboto)
+    {
+        std::cerr << "Failed to load Roboto\n";
+        // fallback to default font
+        io.Fonts->AddFontDefault();
+    }
+    io.Fonts->Build();
+    (void)ImGui::SFML::UpdateFontTexture();
+}
+
+void GUIHandler::applyDPIScale(float scale)
+{
+    ImGuiIO &io = ImGui::GetIO();
+
+    // Reset style and font to base, then apply new scale exactly once.
+    ImGui::GetStyle() = base_imgui_style;
+    ImGui::GetStyle().ScaleAllSizes(scale);
+
+    current_dpi_scale = scale;
+
+    reloadFontsForDPI(scale);
+
+    io.FontGlobalScale = base_font_global_scale;
+
+    std::cout << "DPI Scale set to: " << scale << " (" << (scale * 100.0f) << "%)\n";
 }
 
 void GUIHandler::processEvent(const sf::Event &event)
 {
     ImGui::SFML::ProcessEvent(window, event);
+
+    if (ImGui::GetIO().WantCaptureKeyboard)
+        return;
+
+    using sc = sf::Keyboard::Scancode;
+
+    // Key pressed event
+    if (event.is<sf::Event::KeyPressed>())
+    {
+        const auto &e = event.getIf<sf::Event::KeyPressed>();
+
+        bool ctrl = sf::Keyboard::isKeyPressed(sc::LControl) ||
+                    sf::Keyboard::isKeyPressed(sc::RControl);
+
+        sf::Keyboard::Scancode code = e->scancode;
+
+        if (ctrl && code == sc::S)
+        {
+            request_save_popup = true;
+        }
+        else if (ctrl && code == sc::O)
+        {
+            request_load_popup = true;
+        }
+        else if (ctrl && code == sc::N)
+        {
+            fem_system.nodes.clear();
+            fem_system.beams.clear();
+            fem_system.solve_system();
+        }
+    }
 }
 
 void GUIHandler::render()
 {
+    if (pending_dpi_scale > 0.0f)
+    {
+        applyDPIScale(pending_dpi_scale);
+        pending_dpi_scale = 0.0f; // Reset the flag
+    }
+
     ImGui::SFML::Update(window, deltaClock.restart());
 
     systemControls();
     nodeEditor();
-    springEditor();
+    beamEditor();
     materialEditor();
+    profileEditor();
     handleSavePopup();
     handleLoadPopup();
     handleDPIAdjust();
+    helpPage();
     headerBar();
 }
 
@@ -44,18 +127,24 @@ void GUIHandler::nodeEditor()
 
     bool constraints_changed = false;
 
-    for (int i = 0; i < spring_system.nodes.size(); ++i)
+    for (int i = 0; i < fem_system.nodes.size(); ++i)
     {
         ImGui::PushID(i);
 
-        const auto &node = spring_system.nodes[i];
+        auto &editable_node = fem_system.nodes[i];
 
         ImGui::Text("Node %d", i + 1);
 
-        // Editable reference to the node
-        auto &editable_node = spring_system.nodes[i];
+        // Editable position
+        float pos[2] = {editable_node.position[0], editable_node.position[1]};
+        if (ImGui::InputFloat2("Position (X, Y) [m]", pos))
+        {
+            editable_node.position[0] = pos[0];
+            editable_node.position[1] = pos[1];
+            constraints_changed = true;
+        }
 
-        // Ensure the combo items match the enum mapping used below (Free=0, Fixed=1, FixedPin=2, Slider=3)
+        // Constraint type
         const char *constraint_items[] = {"Free", "Fixed", "Fixed Pin", "Slider"};
         int current_constraint = 0;
         switch (editable_node.constraint_type)
@@ -100,8 +189,7 @@ void GUIHandler::nodeEditor()
         // If Slider, allow angle adjustment
         if (editable_node.constraint_type == Slider)
         {
-            // Show and update slider angle if node is a Slider
-            float angle_deg = editable_node.constraint_angle; // Node must be constructed as: Node(x, y, Slider, angle_deg)
+            float angle_deg = editable_node.constraint_angle;
             if (ImGui::SliderFloat("Slider Angle (deg)", &angle_deg, 0.0f, 360.0f))
             {
                 editable_node.constraint_angle = angle_deg;
@@ -115,19 +203,19 @@ void GUIHandler::nodeEditor()
         {
             const int removed_index = i;
 
-            // Remove any springs that reference this node
-            for (int s = 0; s < static_cast<int>(spring_system.springs.size()); ++s)
+            // Remove any beams that reference this node
+            for (int s = 0; s < static_cast<int>(fem_system.beams.size()); ++s)
             {
-                auto &sp = spring_system.springs[s];
+                auto &sp = fem_system.beams[s];
                 if (sp.nodes[0] == removed_index || sp.nodes[1] == removed_index)
                 {
-                    spring_system.springs.erase(spring_system.springs.begin() + s);
-                    --s; // step back after erase
+                    fem_system.beams.erase(fem_system.beams.begin() + s);
+                    --s;
                 }
             }
 
-            // Decrement node indices in remaining springs that were after the removed node
-            for (auto &sp : spring_system.springs)
+            // Decrement node indices in remaining beams that were after the removed node
+            for (auto &sp : fem_system.beams)
             {
                 if (sp.nodes[0] > removed_index)
                     --sp.nodes[0];
@@ -135,15 +223,10 @@ void GUIHandler::nodeEditor()
                     --sp.nodes[1];
             }
 
-            // Erase the node
-            spring_system.nodes.erase(spring_system.nodes.begin() + removed_index);
+            fem_system.nodes.erase(fem_system.nodes.begin() + removed_index);
 
             ImGui::PopID();
-
-            // Rebuild/solve system after structural change
-            spring_system.solve_system();
-
-            // Adjust loop index to account for erased element
+            fem_system.solve_system();
             --i;
             continue;
         }
@@ -176,91 +259,171 @@ void GUIHandler::nodeEditor()
         switch (new_constraint)
         {
         case 0:
-            spring_system.nodes.emplace_back(new_x, new_y, Free, 0.0f);
+            fem_system.nodes.emplace_back(new_x, new_y, Free, 0.0f);
             break;
         case 1:
-            spring_system.nodes.emplace_back(new_x, new_y, Fixed, 0.0f);
+            fem_system.nodes.emplace_back(new_x, new_y, Fixed, 0.0f);
             break;
         case 2:
-            spring_system.nodes.emplace_back(new_x, new_y, FixedPin, 0.0f);
+            fem_system.nodes.emplace_back(new_x, new_y, FixedPin, 0.0f);
             break;
         case 3:
-            spring_system.nodes.emplace_back(new_x, new_y, Slider, new_angle);
+            fem_system.nodes.emplace_back(new_x, new_y, Slider, new_angle);
             break;
         default:
-            spring_system.nodes.emplace_back(new_x, new_y, Free, 0.0f);
+            fem_system.nodes.emplace_back(new_x, new_y, Free, 0.0f);
             break;
         }
 
-        // Optionally bump the X a bit so successive adds are easier
-        new_x += 0.5f;
-
         // Re-solve so system matrices/vectors are rebuilt (solve_system should handle resizing state)
-        spring_system.solve_system();
+        fem_system.solve_system();
     }
 
     ImGui::End();
 
     if (constraints_changed)
     {
-        spring_system.solve_system();
+        fem_system.solve_system();
     }
 }
 
-void GUIHandler::springEditor()
+void GUIHandler::beamEditor()
 {
-    if (!show_spring_editor)
+    if (!show_beam_editor)
         return;
 
-    ImGui::Begin("Spring Editor", &show_spring_editor, ImGuiWindowFlags_AlwaysAutoResize);
+    ImGui::Begin("Beam Editor", &show_beam_editor, ImGuiWindowFlags_AlwaysAutoResize);
 
-    // Prepare node labels for combos
+    // --- Prepare node labels for combos (keep strings alive while UI draws) ---
     std::vector<std::string> node_labels;
-    node_labels.reserve(spring_system.nodes.size());
-    for (size_t i = 0; i < spring_system.nodes.size(); ++i)
+    node_labels.reserve(fem_system.nodes.size());
+    for (size_t i = 0; i < fem_system.nodes.size(); ++i)
         node_labels.push_back("Node " + std::to_string(i + 1));
+
     std::vector<const char *> node_items;
     node_items.reserve(node_labels.size());
     for (auto &s : node_labels)
         node_items.push_back(s.c_str());
 
-    bool springs_changed = false;
+    // --- Prepare profile & material label arrays ---
+    std::vector<const char *> profile_items;
+    profile_items.reserve(fem_system.beam_profiles_list.size());
+    for (auto &profile : fem_system.beam_profiles_list)
+        profile_items.push_back(profile.name.c_str());
 
-    // List existing springs and allow changing endpoints or removing
-    for (int i = 0; i < static_cast<int>(spring_system.springs.size()); ++i)
+    std::vector<const char *> material_items;
+    material_items.reserve(fem_system.materials_list.size());
+    for (auto &mat : fem_system.materials_list)
+        material_items.push_back(mat.name.c_str());
+
+    bool beams_changed = false;
+
+    // --- Existing beams ---
+    for (int i = 0; i < static_cast<int>(fem_system.beams.size()); ++i)
     {
         ImGui::PushID(i);
-        auto &spring = spring_system.springs[i];
+        Beam &beam = fem_system.beams[i];
 
-        ImGui::Text("Spring %d", i + 1);
+        ImGui::Text("Beam %d", i + 1);
+
+        // Validate endpoints quickly — if invalid, show warning and allow removal
+        const int node_count = static_cast<int>(fem_system.nodes.size());
+        bool endpoints_valid = (beam.nodes[0] >= 0 && beam.nodes[0] < node_count &&
+                                beam.nodes[1] >= 0 && beam.nodes[1] < node_count);
+
+        if (!endpoints_valid)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.25f, 0.25f, 1.0f), "Invalid endpoints (node index out of range)");
+            if (ImGui::Button("Remove Invalid Beam"))
+            {
+                fem_system.beams.erase(fem_system.beams.begin() + i);
+                beams_changed = true;
+                ImGui::PopID();
+                --i;
+                continue;
+            }
+            ImGui::Separator();
+            ImGui::PopID();
+            continue;
+        }
 
         // Node A combo
-        int node_a = spring.nodes[0]; // adjust field name if your Spring uses a different member
-        if (ImGui::Combo("Node A", &node_a, node_items.data(), static_cast<int>(node_items.size())))
+        int node_a = beam.nodes[0];
+        if (!node_items.empty())
         {
-            spring.nodes[0] = node_a;
-            springs_changed = true;
+            if (ImGui::Combo("Node A", &node_a, node_items.data(), static_cast<int>(node_items.size())))
+            {
+                beam.nodes[0] = node_a;
+                beams_changed = true;
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("No nodes available");
         }
 
         // Node B combo
-        int node_b = spring.nodes[1]; // adjust field name if your Spring uses a different member
-        if (ImGui::Combo("Node B", &node_b, node_items.data(), static_cast<int>(node_items.size())))
+        int node_b = beam.nodes[1];
+        if (!node_items.empty())
         {
-            spring.nodes[1] = node_b;
-            springs_changed = true;
+            if (ImGui::Combo("Node B", &node_b, node_items.data(), static_cast<int>(node_items.size())))
+            {
+                beam.nodes[1] = node_b;
+                beams_changed = true;
+            }
         }
 
-        // Optional: display stress if available
+        // Prevent Node A == Node B
+        if (beam.nodes[0] == beam.nodes[1])
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Invalid: Node A == Node B");
+        }
+
+        // Profile combo (uses index stored in beam.shape_idx)
+        int profile_idx = (beam.shape_idx >= 0 && beam.shape_idx < static_cast<int>(fem_system.beam_profiles_list.size()))
+                              ? beam.shape_idx
+                              : 0;
+        if (!profile_items.empty())
+        {
+            if (ImGui::Combo("Profile", &profile_idx, profile_items.data(), static_cast<int>(profile_items.size())))
+            {
+                beam.shape_idx = profile_idx;
+                beams_changed = true;
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("No profiles available");
+        }
+
+        // Material combo (uses index stored in beam.material_idx)
+        int material_idx = (beam.material_idx >= 0 && beam.material_idx < static_cast<int>(fem_system.materials_list.size()))
+                               ? beam.material_idx
+                               : 0;
+        if (!material_items.empty())
+        {
+            if (ImGui::Combo("Material", &material_idx, material_items.data(), static_cast<int>(material_items.size())))
+            {
+                beam.material_idx = material_idx;
+                beams_changed = true;
+            }
+        }
+        else
+        {
+            ImGui::TextDisabled("No materials available");
+        }
+
+        // Display stress
         ImGui::SameLine();
-        ImGui::Text("Stress: %.2f", spring.stress);
+        ImGui::Text("Stress: %.2f", beam.stress);
 
         // Remove button
-        if (ImGui::Button("Remove Spring"))
+        if (ImGui::Button("Remove Beam"))
         {
-            spring_system.springs.erase(spring_system.springs.begin() + i);
-            springs_changed = true;
+            fem_system.beams.erase(fem_system.beams.begin() + i);
+            beams_changed = true;
             ImGui::PopID();
-            --i; // step back to account for erased element
+            --i;
             continue;
         }
 
@@ -268,48 +431,74 @@ void GUIHandler::springEditor()
         ImGui::PopID();
     }
 
-    // Add new spring controls
+    // --- Add new beam controls ---
     static int new_node_a = 0;
     static int new_node_b = 0;
+    static int new_profile_idx = 0;
+    static int new_material_idx = 0;
+
     if (!node_items.empty())
     {
-        ImGui::Text("Create New Spring:");
+        ImGui::Text("Create New Beam:");
         ImGui::Combo("New Node A", &new_node_a, node_items.data(), static_cast<int>(node_items.size()));
         ImGui::Combo("New Node B", &new_node_b, node_items.data(), static_cast<int>(node_items.size()));
 
-        ImGui::SameLine();
-        if (ImGui::Button("Add Spring"))
-        {
-            if (new_node_a != new_node_b)
-            {
-                // Try to construct a new spring using a common constructor; adjust if your Spring type differs
-                // default area (m^2) and Young's modulus (Pa) — adjust defaults or expose as UI controls elsewhere
-                static float new_area = 0.1963; // cross-sectional area
-                static float new_E = 30e6f;     // Young's modulus (e.g. 200 GPa)
-                BeamProperties properties;
-                properties.area = new_area;
-                properties.material.youngs_modulus = new_E;
-                // if (new_area <= 0.0f)
-                //     new_area = 1.0f;
-                // if (new_E <= 0.0f)
-                //     new_E = 1.0f;
+        if (!profile_items.empty())
+            ImGui::Combo("Profile##NewBeam", &new_profile_idx, profile_items.data(), static_cast<int>(profile_items.size()));
+        else
+            ImGui::TextDisabled("No profiles available");
 
-                // construct spring with node indices a/b and material properties A and E
-                spring_system.springs.emplace_back(new_node_a, new_node_b, properties);
-                springs_changed = true;
+        if (!material_items.empty())
+            ImGui::Combo("Material##NewBeam", &new_material_idx, material_items.data(), static_cast<int>(material_items.size()));
+        else
+            ImGui::TextDisabled("No materials available");
+
+        if (new_node_a == new_node_b)
+        {
+            ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "Node A and B must be different to create a beam.");
+        }
+
+        ImGui::SameLine();
+        if (ImGui::Button("Add Beam"))
+        {
+            // Validate before creating
+            if (new_node_a != new_node_b &&
+                new_node_a >= 0 && new_node_a < static_cast<int>(fem_system.nodes.size()) &&
+                new_node_b >= 0 && new_node_b < static_cast<int>(fem_system.nodes.size()) &&
+                !profile_items.empty() && !material_items.empty())
+            {
+                // Constructor assumed Beam(int n1, int n2, int material_idx, int shape_idx)
+                fem_system.beams.emplace_back(new_node_a, new_node_b, new_material_idx, new_profile_idx);
+                beams_changed = true;
             }
         }
     }
     else
     {
-        ImGui::TextDisabled("No nodes available to create springs.");
+        ImGui::TextDisabled("No nodes available to create beams.");
     }
 
     ImGui::End();
 
-    if (springs_changed)
+    if (beams_changed)
     {
-        spring_system.solve_system();
+        // Sanity-check beams before solving: remove any that are invalid (defensive)
+        for (int i = 0; i < static_cast<int>(fem_system.beams.size()); ++i)
+        {
+            const Beam &s = fem_system.beams[i];
+            if (s.nodes[0] < 0 || s.nodes[0] >= static_cast<int>(fem_system.nodes.size()) ||
+                s.nodes[1] < 0 || s.nodes[1] >= static_cast<int>(fem_system.nodes.size()) ||
+                s.nodes[0] == s.nodes[1] ||
+                s.material_idx < 0 || s.material_idx >= static_cast<int>(fem_system.materials_list.size()) ||
+                s.shape_idx < 0 || s.shape_idx >= static_cast<int>(fem_system.beam_profiles_list.size()))
+            {
+                std::cerr << "Removing invalid beam at index " << i << " during validation.\n";
+                fem_system.beams.erase(fem_system.beams.begin() + i);
+                --i;
+            }
+        }
+
+        fem_system.solve_system();
     }
 }
 
@@ -325,12 +514,12 @@ void GUIHandler::systemControls()
     ImGui::Separator();
 
     bool forces_changed = false;
-    for (int i = 0; i < spring_system.nodes.size(); ++i)
+    for (int i = 0; i < fem_system.nodes.size(); ++i)
     {
-        if (spring_system.nodes[i].constraint_type == Free || spring_system.nodes[i].constraint_type == Slider)
+        if (fem_system.nodes[i].constraint_type == Free || fem_system.nodes[i].constraint_type == Slider)
         {
-            float fx = spring_system.forces(i * 2);
-            float fy = spring_system.forces(i * 2 + 1);
+            float fx = fem_system.forces(i * 2);
+            float fy = fem_system.forces(i * 2 + 1);
             ImGui::PushID(i);
 
             ImGui::Text("Node %d Forces:", i + 1);
@@ -340,13 +529,13 @@ void GUIHandler::systemControls()
             ImGui::SameLine();
             if (ImGui::SliderFloat("##FxSlider", &fx, -10000.0f, 10000.0f))
             {
-                spring_system.forces(i * 2) = fx;
+                fem_system.forces(i * 2) = fx;
                 forces_changed = true;
             }
             ImGui::SameLine();
             if (ImGui::InputFloat("##FxInput", &fx))
             {
-                spring_system.forces(i * 2) = fx;
+                fem_system.forces(i * 2) = fx;
                 forces_changed = true;
             }
 
@@ -355,13 +544,13 @@ void GUIHandler::systemControls()
             ImGui::SameLine();
             if (ImGui::SliderFloat("##FySlider", &fy, -10000.0f, 10000.0f))
             {
-                spring_system.forces(i * 2 + 1) = fy;
+                fem_system.forces(i * 2 + 1) = fy;
                 forces_changed = true;
             }
             ImGui::SameLine();
             if (ImGui::InputFloat("##FyInput", &fy))
             {
-                spring_system.forces(i * 2 + 1) = fy;
+                fem_system.forces(i * 2 + 1) = fy;
                 forces_changed = true;
             }
 
@@ -371,25 +560,25 @@ void GUIHandler::systemControls()
     }
 
     if (forces_changed)
-        spring_system.solve_system();
+        fem_system.solve_system();
 
     // Solution display
     ImGui::Text("Solution:");
-    for (int i = 0; i < spring_system.nodes.size(); ++i)
+    for (int i = 0; i < fem_system.nodes.size(); ++i)
     {
         ImGui::Text("Node %d: u=%.6f m, v=%.6f m", i + 1,
-                    spring_system.displacement(i * 2),
-                    spring_system.displacement(i * 2 + 1));
+                    fem_system.displacement(i * 2),
+                    fem_system.displacement(i * 2 + 1));
     }
 
-    // Spring stresses
-    ImGui::Text("Spring Stresses (MPa):");
+    // Beam stresses
+    ImGui::Text("Beam Stresses (MPa):");
     int index = 1;
-    for (const auto &spring : spring_system.springs)
+    for (const auto &beam : fem_system.beams)
     {
-        sf::Color color = renderer.getStressColor(spring.stress, spring_system.min_stress, spring_system.max_stress);
+        sf::Color color = renderer.getStressColor(beam.stress, fem_system.min_stress, fem_system.max_stress);
         ImGui::TextColored(ImVec4(color.r / 255.f, color.g / 255.f, color.b / 255.f, 1.f),
-                           "Spring %d: %.2f MPa", index++, spring.stress);
+                           "Beam %d: %.2f MPa", index++, beam.stress);
     }
 
     ImGui::End();
@@ -397,16 +586,13 @@ void GUIHandler::systemControls()
 
 void GUIHandler::handleLoadPopup()
 {
-    static char filename_buf[512] = "system.bin";
-    static bool trigger_load_read = false;
-
     if (request_load_popup)
     {
-        ImGui::OpenPopup("Load From File");
+        ImGui::OpenPopup("Load From");
         request_load_popup = false;
     }
 
-    if (ImGui::BeginPopupModal("Load From File", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    if (ImGui::BeginPopupModal("Load From", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::InputText("Filename", filename_buf, sizeof(filename_buf));
 
@@ -419,146 +605,276 @@ void GUIHandler::handleLoadPopup()
         ImGui::SameLine();
         if (ImGui::Button("Cancel"))
         {
-            trigger_load_read = false;
             ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();
     }
 
+    // Display error message if load failed
+    if (load_error)
+    {
+        ImGui::OpenPopup("Load Error");
+    }
+    if (ImGui::BeginPopupModal("Load Error", &load_error, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Failed to load file: %s", error_msg.c_str());
+        if (ImGui::Button("OK"))
+        {
+            load_error = false;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     if (!trigger_load_read)
         return;
 
-    // consume the trigger
     trigger_load_read = false;
+    error_msg.clear();
+
+    // check if user put .ffem extension, add if missing
+    std::string filename_str(filename_buf);
+    if (filename_str.size() < 5 || filename_str.substr(filename_str.size() - 5) != ".ffem")
+    {
+        filename_str += ".ffem";
+        std::strncpy(filename_buf, filename_str.c_str(), sizeof(filename_buf));
+        filename_buf[sizeof(filename_buf) - 1] = '\0'; // ensure null termination
+    }
 
     std::ifstream ifs(filename_buf, std::ios::binary);
     if (!ifs)
     {
-        ImGui::OpenPopup("Load Error");
+        error_msg = "Could not open file for reading.";
+        load_error = true;
         return;
     }
 
-    // Try to read nodes
-    try
+    // 1. Header/Version
+    uint32_t version = 0;
+    ifs.read(reinterpret_cast<char *>(&version), sizeof(version));
+    if (!ifs || version != FILE_VERSION)
     {
-        uint32_t node_count = 0;
-        ifs.read(reinterpret_cast<char *>(&node_count), sizeof(node_count));
+        error_msg = "File version mismatch or read error. Expected " + std::to_string(FILE_VERSION) + ", got " + std::to_string(version);
+        load_error = true;
+        return;
+    }
+
+    // Clear current system
+    fem_system.materials_list.clear();
+    fem_system.beam_profiles_list.clear();
+    fem_system.nodes.clear();
+    fem_system.beams.clear();
+    fem_system.forces = Eigen::VectorXd();
+
+    // 2. Material Profiles
+    uint32_t material_count = 0;
+    ifs.read(reinterpret_cast<char *>(&material_count), sizeof(material_count));
+    if (!ifs)
+    {
+        error_msg = "Failed reading material count.";
+        load_error = true;
+        return;
+    }
+    fem_system.materials_list.resize(material_count);
+    for (uint32_t i = 0; i < material_count; ++i)
+    {
+        MaterialProfile &m = fem_system.materials_list[i];
+        m.name = readString(ifs);
+        ifs.read(reinterpret_cast<char *>(&m.youngs_modulus), sizeof(m.youngs_modulus));
         if (!ifs)
-            throw std::runtime_error("read node count");
-
-        // Temporary containers
-        std::vector<std::tuple<float, float, int32_t, float>> nodes_data;
-        nodes_data.reserve(node_count);
-
-        for (uint32_t i = 0; i < node_count; ++i)
         {
-            float x = 0.f, y = 0.f;
-            int32_t type = 0;
-            float angle = 0.f;
+            error_msg = "Failed reading material profile " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+    }
 
-            ifs.read(reinterpret_cast<char *>(&x), sizeof(x));
-            ifs.read(reinterpret_cast<char *>(&y), sizeof(y));
-            ifs.read(reinterpret_cast<char *>(&type), sizeof(type));
-            ifs.read(reinterpret_cast<char *>(&angle), sizeof(angle));
+    // 3. Beam Profiles
+    uint32_t profile_count = 0;
+    ifs.read(reinterpret_cast<char *>(&profile_count), sizeof(profile_count));
+    if (!ifs)
+    {
+        error_msg = "Failed reading beam profile count.";
+        load_error = true;
+        return;
+    }
+    fem_system.beam_profiles_list.resize(profile_count);
+    for (uint32_t i = 0; i < profile_count; ++i)
+    {
+        BeamProfile &p = fem_system.beam_profiles_list[i];
+        p.name = readString(ifs);
+        ifs.read(reinterpret_cast<char *>(&p.area), sizeof(p.area));
+        if (!ifs)
+        {
+            error_msg = "Failed reading beam profile " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+    }
 
-            if (!ifs)
-                throw std::runtime_error("read node entry");
+    // 4. Nodes
+    uint32_t node_count = 0;
+    ifs.read(reinterpret_cast<char *>(&node_count), sizeof(node_count));
+    if (!ifs)
+    {
+        error_msg = "Failed reading node count.";
+        load_error = true;
+        return;
+    }
+    fem_system.nodes.resize(node_count);
+    for (uint32_t i = 0; i < node_count; ++i)
+    {
+        Node &n = fem_system.nodes[i];
+        ifs.read(reinterpret_cast<char *>(&n.position[0]), sizeof(float) * 2);
+        int32_t type = 0;
+        ifs.read(reinterpret_cast<char *>(&type), sizeof(type));
+        ifs.read(reinterpret_cast<char *>(&n.constraint_angle), sizeof(n.constraint_angle));
+        if (!ifs)
+        {
+            error_msg = "Failed reading node " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+        // validate enum range (defensive)
+        if (type < static_cast<int32_t>(Free) || type > static_cast<int32_t>(Slider))
+            n.constraint_type = Free;
+        else
+            n.constraint_type = static_cast<ConstraintType>(type);
+    }
 
-            nodes_data.emplace_back(x, y, type, angle);
+    // 5. Beams (now using indices)
+    uint32_t beam_count = 0;
+    ifs.read(reinterpret_cast<char *>(&beam_count), sizeof(beam_count));
+    if (!ifs)
+    {
+        error_msg = "Failed reading beam count.";
+        load_error = true;
+        return;
+    }
+    fem_system.beams.resize(beam_count);
+    for (uint32_t i = 0; i < beam_count; ++i)
+    {
+        Beam &s = fem_system.beams[i];
+
+        // Nodes indices (int32_t[2])
+        int32_t n0 = -1, n1 = -1;
+        ifs.read(reinterpret_cast<char *>(&n0), sizeof(n0));
+        ifs.read(reinterpret_cast<char *>(&n1), sizeof(n1));
+        if (!ifs)
+        {
+            error_msg = "Failed reading beam node indices for beam " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+        s.nodes[0] = n0;
+        s.nodes[1] = n1;
+
+        // Stress (float)
+        ifs.read(reinterpret_cast<char *>(&s.stress), sizeof(s.stress));
+        if (!ifs)
+        {
+            error_msg = "Failed reading beam stress for beam " + std::to_string(i);
+            load_error = true;
+            return;
         }
 
-        uint32_t spring_count = 0;
-        ifs.read(reinterpret_cast<char *>(&spring_count), sizeof(spring_count));
+        // Material and Profile Indices (int32_t[2])
+        int32_t mat_idx = -1, shape_idx = -1;
+        ifs.read(reinterpret_cast<char *>(&mat_idx), sizeof(mat_idx));
+        ifs.read(reinterpret_cast<char *>(&shape_idx), sizeof(shape_idx));
         if (!ifs)
-            throw std::runtime_error("read spring count");
-
-        std::vector<std::tuple<int32_t, int32_t, float>> springs_data;
-        springs_data.reserve(spring_count);
-
-        for (uint32_t i = 0; i < spring_count; ++i)
         {
-            int32_t a = 0, b = 0;
-            float stress = 0.f;
-            ifs.read(reinterpret_cast<char *>(&a), sizeof(a));
-            ifs.read(reinterpret_cast<char *>(&b), sizeof(b));
-            ifs.read(reinterpret_cast<char *>(&stress), sizeof(stress));
-
-            if (!ifs)
-                throw std::runtime_error("read spring entry");
-
-            springs_data.emplace_back(a, b, stress);
+            error_msg = "Failed reading beam material/shape indices for beam " + std::to_string(i);
+            load_error = true;
+            return;
         }
 
-        uint32_t fcount = 0;
-        ifs.read(reinterpret_cast<char *>(&fcount), sizeof(fcount));
-        if (!ifs)
-            throw std::runtime_error("read forces count");
+        // Validate indices
+        if (mat_idx < 0 || mat_idx >= static_cast<int32_t>(fem_system.materials_list.size()) ||
+            shape_idx < 0 || shape_idx >= static_cast<int32_t>(fem_system.beam_profiles_list.size()))
+        {
+            error_msg = "Invalid material/shape index in beam " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+        s.material_idx = mat_idx;
+        s.shape_idx = shape_idx;
 
-        std::vector<float> forces_data;
-        forces_data.resize(fcount ? fcount : 0);
+        // validate node indices
+        if (s.nodes[0] < 0 || s.nodes[0] >= static_cast<int32_t>(fem_system.nodes.size()) ||
+            s.nodes[1] < 0 || s.nodes[1] >= static_cast<int32_t>(fem_system.nodes.size()))
+        {
+            error_msg = "Invalid node index in beam " + std::to_string(i);
+            load_error = true;
+            return;
+        }
+    }
+
+    // 6. Forces (Eigen::VectorXd)
+    uint32_t fcount = 0;
+    ifs.read(reinterpret_cast<char *>(&fcount), sizeof(fcount));
+    if (!ifs)
+    {
+        error_msg = "Failed reading forces count.";
+        load_error = true;
+        return;
+    }
+
+    const size_t expected_forces = fem_system.nodes.size() * 2;
+    if (fcount == expected_forces)
+    {
+        fem_system.forces.resize(fcount);
         if (fcount > 0)
         {
-            ifs.read(reinterpret_cast<char *>(forces_data.data()), sizeof(float) * fcount);
+            ifs.read(reinterpret_cast<char *>(fem_system.forces.data()), sizeof(double) * fcount);
             if (!ifs)
-                throw std::runtime_error("read forces");
-        }
-
-        // If we reached here, data read successfully. Replace system content.
-        spring_system.nodes.clear();
-        spring_system.nodes.reserve(nodes_data.size());
-        for (auto &t : nodes_data)
-        {
-            float x, y, angle;
-            int32_t type;
-            std::tie(x, y, type, angle) = t;
-
-            // Construct node directly with saved parameters (Node(float x, float y, ConstraintType ct, float angle))
-            spring_system.nodes.emplace_back(x, y, static_cast<ConstraintType>(type), angle);
-        }
-
-        spring_system.springs.clear();
-        spring_system.springs.reserve(springs_data.size());
-        for (auto &t : springs_data)
-        {
-            int32_t a, b;
-            float stress;
-            std::tie(a, b, stress) = t;
-
-            // Construct spring with the saved node indices and reasonable default A and E,
-            // then restore the saved stress value.
-            // TODO: Fix spring loading
-            // spring_system.springs.emplace_back(a, b, );
-            auto &s = spring_system.springs.back();
-            s.stress = stress;
-        }
-
-        // Restore forces
-        if (forces_data.size() == spring_system.forces.size())
-        {
-            for (size_t i = 0; i < forces_data.size(); ++i)
             {
-                spring_system.forces(i) = forces_data[i];
+                error_msg = "Failed reading full forces data.";
+                load_error = true;
+                return;
             }
         }
-
-        // Recompute system structures/state
-        spring_system.solve_system();
     }
-    catch (...)
+    else
     {
-        ImGui::OpenPopup("Load Error");
+        // mismatch: safer to zero forces rather than trust a mismatched file
+        std::cerr << "Warning: forces count in file (" << fcount << ") does not match expected (" << expected_forces << "). Zeroing forces.\n";
+        fem_system.forces = Eigen::VectorXd::Zero(expected_forces);
+
+        // Attempt to skip over the saved forces blob if file contains it
+        if (fcount > 0)
+        {
+            // seek forward to skip the raw doubles (best-effort)
+            ifs.seekg(static_cast<std::streamoff>(sizeof(double) * fcount), std::ios::cur);
+            // ignore seek failure — we already zeroed forces
+        }
     }
+
+    // final file-read sanity check
+    if (ifs.fail() && !ifs.eof())
+    {
+        error_msg = "Error occurred during file reading or file truncated.";
+        load_error = true;
+        return;
+    }
+
+    // Success — you may want to recompute derived structures
+    // e.g. fem_system.total_dof = nodes.size()*2; etc.
+    fem_system.total_dof = static_cast<int>(fem_system.nodes.size()) * 2;
+    fem_system.displacement = Eigen::VectorXd::Zero(fem_system.total_dof);
+    // forces already set (either loaded or zeroed)
+    fem_system.solve_system();
+    renderer.autoZoomToFit();
+
+    // all done
 }
 
 void GUIHandler::handleSavePopup()
 {
-    static char filename_buf[512] = "system.bin";
-    static bool trigger_save_write = false;
-
-    if (request_save_popup) // Check the flag
+    if (request_save_popup)
     {
-        ImGui::OpenPopup("Save As"); // Open it here
+        ImGui::OpenPopup("Save As");
         request_save_popup = false;
     }
 
@@ -575,63 +891,231 @@ void GUIHandler::handleSavePopup()
         ImGui::SameLine();
         if (ImGui::Button("Cancel"))
         {
-            trigger_save_write = false;
             ImGui::CloseCurrentPopup();
         }
 
         ImGui::EndPopup();
     }
 
-    if (trigger_save_write)
+    // Display error message if save failed
+    if (save_error)
     {
-        trigger_save_write = false;
-
-        std::ofstream ofs(filename_buf, std::ios::binary);
-
-        if (!ofs)
+        ImGui::OpenPopup("Save Error");
+    }
+    if (ImGui::BeginPopupModal("Save Error", &save_error, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Failed to save file: %s", error_msg.c_str());
+        if (ImGui::Button("OK"))
         {
-            ImGui::OpenPopup("Save Error");
+            save_error = false;
+            ImGui::CloseCurrentPopup();
         }
-        else
+        ImGui::EndPopup();
+    }
+
+    if (!trigger_save_write)
+        return;
+
+    trigger_save_write = false;
+    error_msg.clear();
+
+    // check if user put .ffem extension, add if missing
+    std::string filename_str(filename_buf);
+    if (filename_str.size() < 5 || filename_str.substr(filename_str.size() - 5) != ".ffem")
+    {
+        filename_str += ".ffem";
+        std::strncpy(filename_buf, filename_str.c_str(), sizeof(filename_buf));
+        filename_buf[sizeof(filename_buf) - 1] = '\0'; // ensure null termination
+    }
+
+    std::ofstream ofs(filename_buf, std::ios::binary);
+    if (!ofs)
+    {
+        error_msg = "Could not open file for writing.";
+        save_error = true;
+        return;
+    }
+
+    // 1. Header/Version
+    ofs.write(reinterpret_cast<const char *>(&FILE_VERSION), sizeof(FILE_VERSION));
+
+    // 2. Material Profiles
+    uint32_t material_count = static_cast<uint32_t>(fem_system.materials_list.size());
+    ofs.write(reinterpret_cast<const char *>(&material_count), sizeof(material_count));
+    for (const auto &m : fem_system.materials_list)
+    {
+        writeString(ofs, m.name);
+        ofs.write(reinterpret_cast<const char *>(&m.youngs_modulus), sizeof(m.youngs_modulus));
+    }
+
+    // 3. Beam Profiles
+    uint32_t profile_count = static_cast<uint32_t>(fem_system.beam_profiles_list.size());
+    ofs.write(reinterpret_cast<const char *>(&profile_count), sizeof(profile_count));
+    for (const auto &p : fem_system.beam_profiles_list)
+    {
+        writeString(ofs, p.name);
+        ofs.write(reinterpret_cast<const char *>(&p.area), sizeof(p.area));
+    }
+
+    // 4. Nodes
+    uint32_t node_count = static_cast<uint32_t>(fem_system.nodes.size());
+    ofs.write(reinterpret_cast<const char *>(&node_count), sizeof(node_count));
+    for (const auto &n : fem_system.nodes)
+    {
+        ofs.write(reinterpret_cast<const char *>(&n.position[0]), sizeof(float) * 2);
+        int32_t type = static_cast<int32_t>(n.constraint_type);
+        ofs.write(reinterpret_cast<const char *>(&type), sizeof(type));
+        ofs.write(reinterpret_cast<const char *>(&n.constraint_angle), sizeof(n.constraint_angle));
+    }
+
+    // 5. Beams (write node indices, stress, material_idx, shape_idx)
+    uint32_t beam_count = static_cast<uint32_t>(fem_system.beams.size());
+    ofs.write(reinterpret_cast<const char *>(&beam_count), sizeof(beam_count));
+    for (const auto &s : fem_system.beams)
+    {
+        // Nodes indices (int32_t[2])
+        int32_t n0 = s.nodes[0];
+        int32_t n1 = s.nodes[1];
+        ofs.write(reinterpret_cast<const char *>(&n0), sizeof(n0));
+        ofs.write(reinterpret_cast<const char *>(&n1), sizeof(n1));
+
+        // Stress (float)
+        ofs.write(reinterpret_cast<const char *>(&s.stress), sizeof(s.stress));
+
+        // Material and Profile Indices (int32_t[2])
+        int32_t mat_idx = s.material_idx;
+        int32_t shape_idx = s.shape_idx;
+        ofs.write(reinterpret_cast<const char *>(&mat_idx), sizeof(mat_idx));
+        ofs.write(reinterpret_cast<const char *>(&shape_idx), sizeof(shape_idx));
+    }
+
+    // 6. Forces (Eigen::VectorXd)
+    uint32_t fcount = static_cast<uint32_t>(fem_system.forces.size());
+    ofs.write(reinterpret_cast<const char *>(&fcount), sizeof(fcount));
+    if (fcount > 0)
+    {
+        ofs.write(reinterpret_cast<const char *>(fem_system.forces.data()), sizeof(double) * fcount);
+    }
+
+    if (ofs.fail())
+    {
+        error_msg = "Error occurred during file writing.";
+        save_error = true;
+        return;
+    }
+
+    // success - file closed on destruction of ofs
+}
+
+void GUIHandler::profileEditor()
+{
+    if (!show_profile_editor)
+        return;
+
+    ImGui::Begin("Profile Editor", &show_profile_editor, ImGuiWindowFlags_AlwaysAutoResize);
+
+    bool profiles_changed = false;
+
+    // --- Existing profiles ---
+    if (fem_system.beam_profiles_list.empty())
+    {
+        ImGui::TextDisabled("No profiles created.");
+    }
+    else
+    {
+        for (int i = 0; i < static_cast<int>(fem_system.beam_profiles_list.size()); ++i)
         {
-            // Write nodes
-            uint32_t node_count = spring_system.nodes.size();
-            ofs.write((char *)&node_count, sizeof(node_count));
-            for (auto &n : spring_system.nodes)
+            ImGui::PushID(i);
+            BeamProfile &profile = fem_system.beam_profiles_list[i];
+
+            ImGui::Text("Profile %d: %s", i + 1, profile.name.c_str());
+
+            // Editable area
+            float area = profile.area;
+            if (ImGui::InputFloat("Area (m^2)", &area))
             {
-                float x = n.position[0];
-                float y = n.position[1];
-                ofs.write((char *)&x, sizeof(float));
-                ofs.write((char *)&y, sizeof(float));
-
-                int32_t type = (int32_t)n.constraint_type;
-                ofs.write((char *)&type, sizeof(type));
-
-                float angle = n.constraint_angle;
-                ofs.write((char *)&angle, sizeof(angle));
+                profile.area = area;
+                // Update all beams using this profile index
+                for (auto &sp : fem_system.beams)
+                {
+                    if (sp.shape_idx == i)
+                        fem_system.beam_profiles_list[sp.shape_idx].area = area;
+                }
+                profiles_changed = true;
             }
 
-            // Write springs
-            uint32_t spring_count = spring_system.springs.size();
-            ofs.write((char *)&spring_count, sizeof(spring_count));
-            for (auto &s : spring_system.springs)
+            // Remove profile button
+            ImGui::SameLine();
+            if (ImGui::Button("Remove Profile"))
             {
-                int32_t a = s.nodes[0];
-                int32_t b = s.nodes[1];
-                ofs.write((char *)&a, sizeof(a));
-                ofs.write((char *)&b, sizeof(b));
+                // Remove all beams using this profile
+                for (int s = 0; s < static_cast<int>(fem_system.beams.size()); ++s)
+                {
+                    if (fem_system.beams[s].shape_idx == i)
+                    {
+                        fem_system.beams.erase(fem_system.beams.begin() + s);
+                        --s;
+                    }
+                }
 
-                float stress = s.stress;
-                ofs.write((char *)&stress, sizeof(stress));
+                // Erase the profile
+                fem_system.beam_profiles_list.erase(fem_system.beam_profiles_list.begin() + i);
+
+                ImGui::PopID();
+                profiles_changed = true;
+
+                --i;
+                continue;
             }
 
-            // Write forces
-            uint32_t fcount = spring_system.forces.size();
-            ofs.write((char *)&fcount, sizeof(fcount));
-            if (fcount > 0)
-                ofs.write((char *)spring_system.forces.data(),
-                          sizeof(float) * fcount);
+            ImGui::Separator();
+            ImGui::PopID();
         }
+    }
+
+    // --- New profile creation ---
+    ImGui::Separator();
+    ImGui::Text("Create New Profile:");
+    static char new_profile_name[128] = "";
+    static float new_profile_area = 0.1963f;
+
+    ImGui::InputText("Name", new_profile_name, sizeof(new_profile_name));
+    ImGui::InputFloat("Area (m^2)", &new_profile_area);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Add Profile"))
+    {
+        std::string name_str(new_profile_name);
+        bool duplicate = false;
+        for (const auto &profile : fem_system.beam_profiles_list)
+        {
+            if (profile.name == name_str)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if (!name_str.empty() && !duplicate)
+        {
+            BeamProfile new_profile;
+            new_profile.name = name_str;
+            new_profile.area = new_profile_area;
+            fem_system.beam_profiles_list.push_back(new_profile);
+
+            // Reset fields
+            new_profile_name[0] = '\0';
+            new_profile_area = 0.1963f;
+
+            profiles_changed = true;
+        }
+    }
+
+    ImGui::End();
+
+    if (profiles_changed)
+    {
+        fem_system.solve_system();
     }
 }
 
@@ -642,90 +1126,175 @@ void GUIHandler::materialEditor()
 
     ImGui::Begin("Material Editor", &show_material_editor, ImGuiWindowFlags_AlwaysAutoResize);
 
-    // Gather and display unique materials from the system's beam properties.
-    // Deduplicate by material name + Young's modulus (common unique id).
-    if (spring_system.beam_properties.empty())
+    bool materials_changed = false;
+
+    // --- Existing materials ---
+    if (fem_system.materials_list.empty())
     {
-        ImGui::TextDisabled("No beam properties defined.");
+        ImGui::TextDisabled("No materials created.");
     }
     else
     {
-        ImGui::Text("Materials in System:");
-        ImGui::Separator();
-
-        std::vector<std::string> seen_keys;
-        seen_keys.reserve(spring_system.beam_properties.size());
-
-        for (const auto &bp : spring_system.beam_properties)
+        for (int i = 0; i < static_cast<int>(fem_system.materials_list.size()); ++i)
         {
-            const auto &mat = bp.material; // expects BeamProperties::material with .name and .youngs_modulus
-            std::string key = mat.name + "#" + std::to_string(mat.youngs_modulus);
+            ImGui::PushID(i);
+            MaterialProfile &mat = fem_system.materials_list[i];
 
-            if (std::find(seen_keys.begin(), seen_keys.end(), key) != seen_keys.end())
+            ImGui::Text("Material %d: %s", i + 1, mat.name.c_str());
+
+            // Editable Young's modulus
+            float youngs = mat.youngs_modulus;
+            if (ImGui::InputFloat("Young's Modulus (Pa)", &youngs))
+            {
+                mat.youngs_modulus = youngs;
+                // Update all beams using this material index
+                for (auto &sp : fem_system.beams)
+                {
+                    if (sp.material_idx == i)
+                        sp.material_idx = i; // Index remains the same, modulus updated via material reference
+                }
+                materials_changed = true;
+            }
+
+            // Remove material button
+            ImGui::SameLine();
+            if (ImGui::Button("Remove Material"))
+            {
+                // Remove all beams using this material
+                for (int s = 0; s < static_cast<int>(fem_system.beams.size()); ++s)
+                {
+                    if (fem_system.beams[s].material_idx == i)
+                    {
+                        fem_system.beams.erase(fem_system.beams.begin() + s);
+                        --s;
+                    }
+                }
+
+                // Erase the material
+                fem_system.materials_list.erase(fem_system.materials_list.begin() + i);
+
+                ImGui::PopID();
+                materials_changed = true;
+
+                --i; // Adjust loop index after erase
                 continue;
+            }
 
-            seen_keys.push_back(key);
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+    }
 
-            ImGui::Bullet();
-            ImGui::Text("%s  — E = %.3e Pa", mat.name.c_str(), mat.youngs_modulus);
+    // --- New material creation ---
+    ImGui::Separator();
+    ImGui::Text("Create New Material:");
+    static char new_mat_name[128] = "";
+    static float new_mat_youngs = 30e6f;
+
+    ImGui::InputText("Name", new_mat_name, sizeof(new_mat_name));
+    ImGui::InputFloat("Young's Modulus (Pa)", &new_mat_youngs);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Add Material"))
+    {
+        std::string name_str(new_mat_name);
+        bool duplicate = false;
+        for (const auto &mat : fem_system.materials_list)
+        {
+            if (mat.name == name_str)
+            {
+                duplicate = true;
+                break;
+            }
+        }
+
+        if (!name_str.empty() && !duplicate)
+        {
+            MaterialProfile new_mat;
+            new_mat.name = name_str;
+            new_mat.youngs_modulus = new_mat_youngs;
+            fem_system.materials_list.push_back(new_mat);
+
+            // Reset fields
+            new_mat_name[0] = '\0';
+            new_mat_youngs = 30e6f;
+
+            materials_changed = true;
         }
     }
 
     ImGui::End();
+
+    if (materials_changed)
+    {
+        fem_system.solve_system();
+    }
 }
 
 void GUIHandler::handleDPIAdjust()
 {
+    static bool popup_just_opened = false;
+
     if (request_dpi_adjust)
     {
-        ImGui::OpenPopup("Adjust DPI Scaling");
-        // Use the flag only as a trigger to open the popup; clear it immediately so it doesn't repeatedly reopen.
         request_dpi_adjust = false;
+        popup_just_opened = true; // mark that we need to init on next BeginPopupModal
+        ImGui::OpenPopup("Adjust DPI Scaling");
     }
 
-    // Allow user to input a DPI / UI scale as a percent (100% = 1.0)
-    static float dpi_percent = 100.0f;
+    static float dpi_percent = current_dpi_scale * 100.0f;
 
     if (ImGui::BeginPopupModal("Adjust DPI Scaling", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        // Close button in the top-right of the popup
+        if (popup_just_opened)
+        {
+            // Initialize only ONCE when popup opens
+            float detected = current_dpi_scale;
+
+            try
+            {
+                detected = renderer.GetDPIScale(window.getNativeHandle());
+            }
+            catch (...)
+            {
+            }
+
+            dpi_percent = detected * 100.0f;
+            popup_just_opened = false;
+        }
+
+        // Close button
         float close_btn_sz = ImGui::GetFrameHeight();
         ImGui::SameLine(ImGui::GetWindowWidth() - close_btn_sz - ImGui::GetStyle().FramePadding.x);
         if (ImGui::Button("X"))
-        {
-            request_dpi_adjust = false;
             ImGui::CloseCurrentPopup();
+
+        float detected = current_dpi_scale;
+        try
+        {
+            detected = renderer.GetDPIScale(window.getNativeHandle());
+        }
+        catch (...)
+        {
         }
 
-        float detected = renderer.GetDPIScale(window.getNativeHandle());
         ImGui::Text("Detected DPI Scale: %.2f (%.0f%%)", detected, detected * 100.0f);
-
-        // Let user pick percentage (adjust range as needed)
         ImGui::SliderFloat("Scale (%)", &dpi_percent, 10.0f, 400.0f, "%.0f%%");
         ImGui::TextWrapped("Apply changes to scale ImGui fonts and widgets. 100% = no scaling.");
 
         if (ImGui::Button("Apply"))
         {
-            float dpiScale = dpi_percent / 100.0f;
-            ImGuiIO &io = ImGui::GetIO();
-            io.FontGlobalScale = dpiScale;             // Scale text
-            ImGui::GetStyle().ScaleAllSizes(dpiScale); // Scale widgets
-            std::cout << "DPI Scale set to: " << dpiScale << std::endl;
+            // DON'T call applyDPIScale here.
+            // Just store the request for the start of the next frame.
+            pending_dpi_scale = dpi_percent / 100.0f;
+
+            ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel"))
-        {
-            request_dpi_adjust = false;
             ImGui::CloseCurrentPopup();
-        }
 
         ImGui::EndPopup();
-    }
-    else
-    {
-        // If the popup is not open (could have been closed by ESC or other means), make sure the request flag is false.
-        // This prevents stale request state if the popup was dismissed without using Apply/Cancel.
-        request_dpi_adjust = false;
     }
 }
 
@@ -737,9 +1306,9 @@ void GUIHandler::headerBar()
         {
             if (ImGui::MenuItem("New System", "Ctrl+N"))
             {
-                spring_system.nodes.clear();
-                spring_system.springs.clear();
-                spring_system.solve_system();
+                fem_system.nodes.clear();
+                fem_system.beams.clear();
+                fem_system.solve_system();
             }
             if (ImGui::MenuItem("Open...", "Ctrl+O"))
             {
@@ -791,9 +1360,9 @@ void GUIHandler::headerBar()
             {
                 show_node_editor = !show_node_editor;
             }
-            if (ImGui::MenuItem("System Spring Editor"))
+            if (ImGui::MenuItem("System Beam Editor"))
             {
-                show_spring_editor = !show_spring_editor;
+                show_beam_editor = !show_beam_editor;
             }
 
             ImGui::EndMenu();
@@ -809,12 +1378,12 @@ void GUIHandler::headerBar()
             {
                 show_profile_editor = !show_profile_editor;
             }
-            if (ImGui::MenuItem("Section Editor"))
-            {
-                show_section_editor = !show_section_editor;
-            }
 
             ImGui::EndMenu();
+        }
+        if (ImGui::MenuItem("Help"))
+        {
+            show_help_page = !show_help_page;
         }
 
         {
@@ -839,4 +1408,38 @@ void GUIHandler::headerBar()
 
         ImGui::EndMainMenuBar();
     }
+}
+
+void GUIHandler::helpPage()
+{
+    if (!show_help_page)
+        return;
+    ImGui::Begin("Help", &show_help_page, ImGuiWindowFlags_AlwaysAutoResize);
+
+    ImGui::Text("2D Truss System Solver - Help");
+    ImGui::Separator();
+
+    if (ImGui::CollapsingHeader("About", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("This application allows you to create and analyze 2D truss systems using the finite element method. You can add nodes and beams, define material properties and beam profiles, apply forces, and view the resulting displacements and stresses.");
+    }
+
+    if (ImGui::CollapsingHeader("How to Use", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        ImGui::TextWrapped("1. Use the 'System Node Editor' to add and manage nodes in your truss system. You can set constraints for each node (fixed, free, or slider).");
+        ImGui::TextWrapped("2. Use the 'System Beam Editor' to add beams between nodes. Select material profiles and beam profiles for each beam.");
+        ImGui::TextWrapped("3. Use the 'Material Editor' to create and manage material profiles with specific Young's modulus values.");
+        ImGui::TextWrapped("4. Use the 'Profile Editor' to create and manage beam profiles with specific cross-sectional areas.");
+        ImGui::TextWrapped("5. Use the 'System Controls' to apply forces to nodes and view the computed displacements and stresses.");
+    }
+
+    if (ImGui::CollapsingHeader("Extra Features", ImGuiTreeNodeFlags_DefaultOpen))
+    {
+        // Extra features as bullet list
+        ImGui::BulletText("Save and load truss systems using the 'File' menu. These use the custom .ffem binary format.");
+        ImGui::BulletText("Adjust DPI scaling for better visibility on high-resolution displays.");
+        ImGui::BulletText("Auto view and zoom features to fit the truss system within the viewport.");
+    }
+
+    ImGui::End();
 }

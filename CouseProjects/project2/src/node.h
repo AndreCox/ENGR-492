@@ -11,13 +11,22 @@ enum ConstraintType
 class Node
 {
 public:
-    float position[2]; // position in 2D space (x, y)
+    float position[2];
     ConstraintType constraint_type;
-    float constraint_angle; // Angle in degrees (0 for horizontal, 90 for vertical)
+    float constraint_angle;
 
-    Node(float x, float y, ConstraintType ct = Free, float angle = 0.0f) : constraint_type(ct), constraint_angle(angle)
+    // Default constructor required for std::vector::resize
+    Node()
+        : position{0.0f, 0.0f},
+          constraint_type(Free),
+          constraint_angle(0.0f)
     {
-        position[0] = x;
-        position[1] = y;
+    }
+
+    Node(float x, float y, ConstraintType ct = Free, float angle = 0.0f)
+        : position{x, y},
+          constraint_type(ct),
+          constraint_angle(angle)
+    {
     }
 };

@@ -6,10 +6,10 @@ struct MaterialProfile
     double youngs_modulus;
 };
 
-class BeamProperties
+struct BeamProfile
 {
-public:
     std::string name;
     double area;
-    MaterialProfile material;
+    double moment_of_inertia;
+    double section_modulus;
 };

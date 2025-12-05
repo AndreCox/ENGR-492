@@ -1,6 +1,6 @@
 #include "graphics.h"
 
-GraphicsRenderer::GraphicsRenderer(SpringSystem const &springSystem)
+GraphicsRenderer::GraphicsRenderer(FEMSystem const &springSystem)
     : worldWidth(1.2f),
       worldHeight(1.2f),
       viewCenter(worldWidth / 2.0f, worldHeight / 2.0f),
@@ -396,20 +396,21 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
     float viewScale = getViewScale(window);
 
     // Base sizes in pixels (what we want to see on screen)
-    const float baseSpringThickness = 0.01f;
+    const float baseBeamThickness = 0.01f;
     const float baseNodeSize = 0.03f;
     const float baseArrowSize = 0.01f;
 
     // Convert to world units based on current zoom
-    float springThickness = baseSpringThickness * viewScale;
+    float beamThickness = baseBeamThickness * viewScale;
     float nodeSize = baseNodeSize * viewScale;
     float arrowSize = baseArrowSize * viewScale;
 
     // -------------------------
-    // Draw springs with stress-based colors
+    // Draw beams with stress-based colors
     // -------------------------
-    for (const auto &spring : system.springs)
+    for (size_t i = 0; i < system.beams.size(); ++i)
     {
+        const auto &spring = system.beams[i];
         int n1 = spring.nodes[0];
         int n2 = spring.nodes[1];
 
@@ -423,7 +424,27 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
             system.nodes[n2].position[0] + system.displacement(n2 * 2),
             system.nodes[n2].position[1] + system.displacement(n2 * 2 + 1));
 
-        drawThickLine(window, p1, p2, springThickness, springColor);
+        drawThickLine(window, p1, p2, beamThickness, springColor);
+
+        // Draw spring number at the center
+        sf::Vector2f center = (p1 + p2) * 0.5f;
+        sf::Text springLabel(font);
+        springLabel.setString(std::to_string(i + 1));
+        springLabel.setCharacterSize(25);
+        springLabel.setStyle(sf::Text::Regular);
+        springLabel.setFillColor(sf::Color::Black);
+        springLabel.setOutlineColor(sf::Color::White);
+        springLabel.setOutlineThickness(4.f);
+
+        // Center the text
+        sf::FloatRect lb = springLabel.getLocalBounds();
+        sf::Vector2f labelCenter(lb.getCenter());
+        springLabel.setOrigin(labelCenter);
+
+        springLabel.setPosition(center);
+        springLabel.setScale(sf::Vector2f(viewScale / 1000, -viewScale / 1000)); // Flip text to match y-up
+
+        window.draw(springLabel);
     }
 
     // -------------------------
@@ -435,10 +456,25 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
         sf::Vector2f pos(node.position[0] + system.displacement(index * 2),
                          node.position[1] + system.displacement(index * 2 + 1));
 
-        if (node.constraint_type == Fixed)
+        if (node.constraint_type == FixedPin)
         {
+            // Draw a thick red "X" for FixedPin using drawThickLine
+            float halfSize = nodeSize / 2.0f;
+            float thickness = nodeSize * 0.4f; // Adjust thickness as needed
+
+            sf::Vector2f p1 = pos + sf::Vector2f(-halfSize, -halfSize);
+            sf::Vector2f p2 = pos + sf::Vector2f(halfSize, halfSize);
+            sf::Vector2f p3 = pos + sf::Vector2f(-halfSize, halfSize);
+            sf::Vector2f p4 = pos + sf::Vector2f(halfSize, -halfSize);
+
+            drawThickLine(window, p1, p2, thickness, sf::Color::Red);
+            drawThickLine(window, p3, p4, thickness, sf::Color::Red);
+        }
+        else if (node.constraint_type == Fixed)
+        {
+            float halfSize = nodeSize / 2.0f;
             sf::RectangleShape square(sf::Vector2f(nodeSize, nodeSize));
-            square.setOrigin(sf::Vector2f(nodeSize / 2, nodeSize / 2));
+            square.setOrigin(sf::Vector2f(halfSize, halfSize));
             square.setPosition(pos);
             square.setFillColor(sf::Color::Red);
             window.draw(square);

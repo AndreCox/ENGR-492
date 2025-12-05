@@ -15,15 +15,15 @@
 
 // Include project headers
 #include "node.h"
-#include "spring.h"
-#include "spring_system.h"
+#include "beam.h"
+#include "fem_system.h"
 #include "graphics.h"
 #include "gui_handler.h"
 
 int main()
 {
     sf::Vector2u window_size(1200, 600);
-    sf::RenderWindow window(sf::VideoMode(window_size), "2D Spring System Visualization");
+    sf::RenderWindow window(sf::VideoMode(window_size), "Fast FEM");
 
     if (!ImGui::SFML::Init(window))
     {
@@ -36,49 +36,56 @@ int main()
     const double E_steel = 30e6;      // Psi
     const double E_aluminum = 10e6;   // Psi
 
-    MaterialProfile steel_profile = {"Steel", E_steel};
-    MaterialProfile aluminum_profile = {"Aluminum", E_aluminum};
-    BeamProperties steel_beam = {"Steel Beam", A_steel, steel_profile};
-    BeamProperties aluminum_beam = {"Aluminum Beam", A_aluminum, aluminum_profile};
+    MaterialProfile steel_material = {"Steel", E_steel};
+    MaterialProfile aluminum_material = {"Aluminum", E_aluminum};
+    BeamProfile steel_profile = {"Steel Beam", A_steel};
+    BeamProfile aluminum_profile = {"Aluminum Beam", A_aluminum};
+
+    // Define material profiles
+    std::vector<MaterialProfile> material_profiles = {
+        steel_material,
+        aluminum_material,
+    };
 
     // Define beam properties
-    std::vector<BeamProperties> beam_properties = {
-        steel_beam,
-        aluminum_beam,
+    std::vector<BeamProfile> beam_profiles = {
+        steel_profile,
+        aluminum_profile,
     };
 
-    // Define nodes
-    std::vector<Node> nodes = {
-        Node(12.0f, 0.0f, Free),
-        Node(12.0f, 6.0f, Free),
-        Node(0.0f, 0.0f, Slider, 90.0f),
-        Node(0.0f, 10.0f, Fixed),
-    };
+    // // Define nodes
+    // std::vector<Node> nodes = {
+    //     Node(12.0f, 0.0f, Free),
+    //     Node(12.0f, 6.0f, Free),
+    //     Node(0.0f, 0.0f, Slider, 90.0f),
+    //     Node(0.0f, 10.0f, FixedPin),
+    // };
 
-    // Define springs (beams)
-    std::vector<Spring>
-        springs = {
-            Spring(0, 1, steel_beam),
-            Spring(0, 2, aluminum_beam),
-            Spring(1, 2, steel_beam),
-            Spring(1, 3, aluminum_beam),
-            Spring(2, 3, steel_beam),
-        };
+    // // Define beams (beams)
+    // std::vector<Beam>
+    //     beams = {
+    //         Beam(0, 1, 0, 0),
+    //         Beam(0, 2, 1, 1),
+    //         Beam(1, 2, 0, 0),
+    //         Beam(1, 3, 1, 1),
+    //         Beam(2, 3, 0, 0),
+    //     };
 
-    SpringSystem spring_system(nodes, springs, beam_properties);
+    // FEMSystem fem_system(nodes, beams, material_profiles, beam_profiles);
 
-    // Course Project 2 Loads
-    spring_system.forces(0 * 2) = -1000.0;
-    spring_system.forces(0 * 2 + 1) = -1732.0;
+    // // Course Project 2 Loads
+    // fem_system.forces(0 * 3) = -1000.0;
+    // fem_system.forces(0 * 3 + 1) = -1732.0;
 
     // Initialize the renderer
-    GraphicsRenderer renderer(spring_system);
+    GraphicsRenderer renderer(fem_system);
     renderer.initialize(1.1f, 1.1f);
+    renderer.autoZoomToFit();
 
     // Create GUI Handler
-    GUIHandler gui_handler(spring_system, renderer, window);
+    GUIHandler gui_handler(fem_system, renderer, window);
 
-    spring_system.solve_system();
+    fem_system.solve_system();
 
     while (window.isOpen())
     {
