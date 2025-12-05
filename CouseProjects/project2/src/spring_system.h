@@ -8,10 +8,18 @@
 #include <iostream>
 #include <cmath>
 
+enum UnitSystem
+{
+    Imperial,
+    Metric
+};
+
 class SpringSystem
 {
 public:
-    SpringSystem(std::vector<Node> &n, std::vector<Spring> &s);
+    SpringSystem(std::vector<Node> &n, std::vector<Spring> &s, std::vector<BeamProperties> &props);
+
+    UnitSystem unit_system = Imperial;
 
     void generate_constraint_row(Eigen::MatrixXd &C, int row_index, int node_id, const std::vector<int> &free_dof_indices);
     int solve_system();
@@ -19,7 +27,7 @@ public:
 
     std::vector<Node> nodes;
     std::vector<Spring> springs;
-    std::vector<BeamProperties> spring_properties;
+    std::vector<BeamProperties> beam_properties;
     Eigen::MatrixXd global_k_matrix;
     Eigen::VectorXd forces;       // forces in x and y directions [F1x, F1y, F2x, F2y, ...]
     Eigen::VectorXd displacement; // displacements in x and y [u1, v1, u2, v2, ...]

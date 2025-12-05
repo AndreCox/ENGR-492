@@ -8,6 +8,7 @@ GUIHandler::GUIHandler(SpringSystem &system, GraphicsRenderer &renderer, sf::Ren
 {
     ImGuiIO &io = ImGui::GetIO();
     float dpiScale = renderer.GetDPIScale(window.getNativeHandle());
+    std::cout << "DPI Scale: " << dpiScale << std::endl;
     io.FontGlobalScale = dpiScale;             // Scale text
     ImGui::GetStyle().ScaleAllSizes(dpiScale); // Scale widgets
 }
@@ -24,8 +25,10 @@ void GUIHandler::render()
     systemControls();
     nodeEditor();
     springEditor();
+    materialEditor();
     handleSavePopup();
     handleLoadPopup();
+    handleDPIAdjust();
     headerBar();
 }
 
@@ -639,9 +642,91 @@ void GUIHandler::materialEditor()
 
     ImGui::Begin("Material Editor", &show_material_editor, ImGuiWindowFlags_AlwaysAutoResize);
 
-    // Material editor content goes here
+    // Gather and display unique materials from the system's beam properties.
+    // Deduplicate by material name + Young's modulus (common unique id).
+    if (spring_system.beam_properties.empty())
+    {
+        ImGui::TextDisabled("No beam properties defined.");
+    }
+    else
+    {
+        ImGui::Text("Materials in System:");
+        ImGui::Separator();
+
+        std::vector<std::string> seen_keys;
+        seen_keys.reserve(spring_system.beam_properties.size());
+
+        for (const auto &bp : spring_system.beam_properties)
+        {
+            const auto &mat = bp.material; // expects BeamProperties::material with .name and .youngs_modulus
+            std::string key = mat.name + "#" + std::to_string(mat.youngs_modulus);
+
+            if (std::find(seen_keys.begin(), seen_keys.end(), key) != seen_keys.end())
+                continue;
+
+            seen_keys.push_back(key);
+
+            ImGui::Bullet();
+            ImGui::Text("%s  — E = %.3e Pa", mat.name.c_str(), mat.youngs_modulus);
+        }
+    }
 
     ImGui::End();
+}
+
+void GUIHandler::handleDPIAdjust()
+{
+    if (request_dpi_adjust)
+    {
+        ImGui::OpenPopup("Adjust DPI Scaling");
+        // Use the flag only as a trigger to open the popup; clear it immediately so it doesn't repeatedly reopen.
+        request_dpi_adjust = false;
+    }
+
+    // Allow user to input a DPI / UI scale as a percent (100% = 1.0)
+    static float dpi_percent = 100.0f;
+
+    if (ImGui::BeginPopupModal("Adjust DPI Scaling", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        // Close button in the top-right of the popup
+        float close_btn_sz = ImGui::GetFrameHeight();
+        ImGui::SameLine(ImGui::GetWindowWidth() - close_btn_sz - ImGui::GetStyle().FramePadding.x);
+        if (ImGui::Button("X"))
+        {
+            request_dpi_adjust = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        float detected = renderer.GetDPIScale(window.getNativeHandle());
+        ImGui::Text("Detected DPI Scale: %.2f (%.0f%%)", detected, detected * 100.0f);
+
+        // Let user pick percentage (adjust range as needed)
+        ImGui::SliderFloat("Scale (%)", &dpi_percent, 10.0f, 400.0f, "%.0f%%");
+        ImGui::TextWrapped("Apply changes to scale ImGui fonts and widgets. 100% = no scaling.");
+
+        if (ImGui::Button("Apply"))
+        {
+            float dpiScale = dpi_percent / 100.0f;
+            ImGuiIO &io = ImGui::GetIO();
+            io.FontGlobalScale = dpiScale;             // Scale text
+            ImGui::GetStyle().ScaleAllSizes(dpiScale); // Scale widgets
+            std::cout << "DPI Scale set to: " << dpiScale << std::endl;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel"))
+        {
+            request_dpi_adjust = false;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+    else
+    {
+        // If the popup is not open (could have been closed by ESC or other means), make sure the request flag is false.
+        // This prevents stale request state if the popup was dismissed without using Apply/Cancel.
+        request_dpi_adjust = false;
+    }
 }
 
 void GUIHandler::headerBar()
@@ -689,6 +774,10 @@ void GUIHandler::headerBar()
             {
                 renderer.autoZoomToFit();
             }
+            if (ImGui::MenuItem("Adjust DPI Scaling"))
+            {
+                request_dpi_adjust = true;
+            }
             ImGui::EndMenu();
         }
 
@@ -728,9 +817,25 @@ void GUIHandler::headerBar()
             ImGui::EndMenu();
         }
 
-        float frame_rate = ImGui::GetIO().Framerate;
-        ImGui::SameLine(ImGui::GetWindowWidth() - 100);
-        ImGui::Text("FPS: %.1f", frame_rate);
+        {
+            float frame_rate = ImGui::GetIO().Framerate;
+            char fps_buf[32];
+            std::snprintf(fps_buf, sizeof(fps_buf), "FPS: %.1f", frame_rate);
+
+            // Compute text width and place it so it never goes past the right window padding
+            float text_w = ImGui::CalcTextSize(fps_buf).x;
+            ImGuiStyle &style = ImGui::GetStyle();
+            float window_w = ImGui::GetWindowWidth();
+            float target_x = window_w - text_w - style.WindowPadding.x - style.ItemSpacing.x;
+
+            // Ensure we don't move left of the current cursor position
+            float cur_x = ImGui::GetCursorPosX();
+            if (target_x < cur_x)
+                target_x = cur_x;
+
+            ImGui::SetCursorPosX(target_x);
+            ImGui::Text("%s", fps_buf);
+        }
 
         ImGui::EndMainMenuBar();
     }

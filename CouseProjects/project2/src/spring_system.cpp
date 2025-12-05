@@ -1,7 +1,7 @@
 #include "spring_system.h"
 
-SpringSystem::SpringSystem(std::vector<Node> &n, std::vector<Spring> &s)
-    : nodes(n), springs(s), max_stress(0.0f), min_stress(0.0f)
+SpringSystem::SpringSystem(std::vector<Node> &n, std::vector<Spring> &s, std::vector<BeamProperties> &props)
+    : nodes(n), springs(s), beam_properties(props), max_stress(0.0f), min_stress(0.0f)
 {
     // Resize displacement and forces vectors
     total_dof = static_cast<int>(nodes.size()) * 2; // 2 DOF per node (x and y)

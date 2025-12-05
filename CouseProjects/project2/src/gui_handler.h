@@ -25,6 +25,7 @@ private:
     void headerBar();
     void handleSavePopup();
     void handleLoadPopup();
+    void handleDPIAdjust();
 
     // material properties editors
     void materialEditor();
@@ -36,6 +37,7 @@ private:
     bool show_spring_editor = false;
     bool request_save_popup = false;
     bool request_load_popup = false;
+    bool request_dpi_adjust = false;
 
     // material properties boolean flags
     bool show_material_editor = false;

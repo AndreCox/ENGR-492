@@ -31,14 +31,6 @@ int main()
         return -1;
     }
 
-    // Course Project 2 Example
-    std::vector<Node> nodes = {
-        Node(12.0f, 0.0f, Free),
-        Node(12.0f, 6.0f, Free),
-        Node(0.0f, 0.0f, Slider, 90.0f),
-        Node(0.0f, 10.0f, Fixed),
-    };
-
     const double A_steel = 0.1963;    // in^2
     const double A_aluminum = 0.1257; // in^2
     const double E_steel = 30e6;      // Psi
@@ -49,6 +41,21 @@ int main()
     BeamProperties steel_beam = {"Steel Beam", A_steel, steel_profile};
     BeamProperties aluminum_beam = {"Aluminum Beam", A_aluminum, aluminum_profile};
 
+    // Define beam properties
+    std::vector<BeamProperties> beam_properties = {
+        steel_beam,
+        aluminum_beam,
+    };
+
+    // Define nodes
+    std::vector<Node> nodes = {
+        Node(12.0f, 0.0f, Free),
+        Node(12.0f, 6.0f, Free),
+        Node(0.0f, 0.0f, Slider, 90.0f),
+        Node(0.0f, 10.0f, Fixed),
+    };
+
+    // Define springs (beams)
     std::vector<Spring>
         springs = {
             Spring(0, 1, steel_beam),
@@ -58,7 +65,7 @@ int main()
             Spring(2, 3, steel_beam),
         };
 
-    SpringSystem spring_system(nodes, springs);
+    SpringSystem spring_system(nodes, springs, beam_properties);
 
     // Course Project 2 Loads
     spring_system.forces(0 * 2) = -1000.0;

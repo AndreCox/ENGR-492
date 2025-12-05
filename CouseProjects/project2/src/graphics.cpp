@@ -29,7 +29,7 @@ GraphicsRenderer::GraphicsRenderer(SpringSystem const &springSystem)
 float GraphicsRenderer::GetDPIScale(sf::WindowHandle handle)
 {
     // -----------------------------
-    // WINDOWSW
+    // WINDOWS
     // -----------------------------
 #if defined(_WIN32)
     UINT dpi = GetDpiForWindow(handle);
@@ -39,9 +39,19 @@ float GraphicsRenderer::GetDPIScale(sf::WindowHandle handle)
     // MACOS
     // -----------------------------
 #elif defined(__APPLE__)
-    // macOS always uses 72 DPI as base, scale is backingScaleFactor
-    float scale = [[NSScreen mainScreen] backingScaleFactor];
-    return scale;
+    // macOS: Get the window's screen and its backing scale factor
+    @autoreleasepool
+    {
+        NSWindow *nsWindow = (__bridge NSWindow *)handle;
+        if (nsWindow && nsWindow.screen)
+        {
+            CGFloat scale = nsWindow.screen.backingScaleFactor;
+            return static_cast<float>(scale);
+        }
+        // Fallback to main screen
+        CGFloat scale = [[NSScreen mainScreen] backingScaleFactor];
+        return static_cast<float>(scale);
+    }
 
     // -----------------------------
     // LINUX (X11)
@@ -59,35 +69,68 @@ float GraphicsRenderer::GetDPIScale(sf::WindowHandle handle)
     }
 
     XrmDatabase db = XrmGetStringDatabase(res);
+    if (!db)
+    {
+        XCloseDisplay(dpy);
+        return 1.0f;
+    }
+
     XrmValue value;
     char *type = nullptr;
+    float dpiScale = 1.0f;
 
     if (XrmGetResource(db, "Xft.dpi", "Xft.Dpi", &type, &value))
     {
-        float dpi = atof(value.addr);
-        XCloseDisplay(dpy);
-        return dpi / 96.0f;
+        if (value.addr)
+        {
+            float dpi = atof(value.addr);
+            if (dpi > 0.0f)
+            {
+                dpiScale = dpi / 96.0f;
+            }
+        }
     }
 
+    XrmDestroyDatabase(db);
     XCloseDisplay(dpy);
-    return 1.0f;
+    return dpiScale;
 
     // -----------------------------
     // LINUX (WAYLAND — fallback)
     // -----------------------------
 #elif defined(__linux__)
-    // Wayland does not give DPI easily; use scaling factor
-    const char *wlScale = getenv("QT_SCALE_FACTOR");
-    if (wlScale)
-        return atof(wlScale);
+    // Wayland: Check various scaling environment variables
+    const char *wlScale = nullptr;
 
-    wlScale = getenv("GDK_SCALE"); // GNOME / GTK
-    if (wlScale)
-        return atof(wlScale);
+    // Try GDK_SCALE first (GNOME/GTK - integer scale factor)
+    wlScale = getenv("GDK_SCALE");
+    if (wlScale && *wlScale)
+    {
+        float scale = atof(wlScale);
+        if (scale > 0.0f)
+            return scale;
+    }
 
-    wlScale = getenv("XCURSOR_SIZE"); // fallback
-    if (wlScale)
-        return atof(wlScale) / 24.0f;
+    // Try QT_SCALE_FACTOR (Qt applications)
+    wlScale = getenv("QT_SCALE_FACTOR");
+    if (wlScale && *wlScale)
+    {
+        float scale = atof(wlScale);
+        if (scale > 0.0f)
+            return scale;
+    }
+
+    // Try GDK_DPI_SCALE (fractional scaling)
+    wlScale = getenv("GDK_DPI_SCALE");
+    if (wlScale && *wlScale)
+    {
+        float scale = atof(wlScale);
+        if (scale > 0.0f)
+            return scale;
+    }
+
+    // XCURSOR_SIZE is not reliable for DPI scaling
+    // Default cursor size is 24, but this varies by theme
 
     return 1.0f;
 
