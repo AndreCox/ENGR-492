@@ -53,29 +53,29 @@ int main()
         aluminum_profile,
     };
 
-    // // Define nodes
-    // std::vector<Node> nodes = {
-    //     Node(12.0f, 0.0f, Free),
-    //     Node(12.0f, 6.0f, Free),
-    //     Node(0.0f, 0.0f, Slider, 90.0f),
-    //     Node(0.0f, 10.0f, FixedPin),
-    // };
+    // Define nodes
+    std::vector<Node> nodes = {
+        Node(12.0f, 0.0f, Free),
+        Node(12.0f, 6.0f, Free),
+        Node(0.0f, 0.0f, Slider, 90.0f),
+        Node(0.0f, 10.0f, FixedPin),
+    };
 
-    // // Define beams (beams)
-    // std::vector<Beam>
-    //     beams = {
-    //         Beam(0, 1, 0, 0),
-    //         Beam(0, 2, 1, 1),
-    //         Beam(1, 2, 0, 0),
-    //         Beam(1, 3, 1, 1),
-    //         Beam(2, 3, 0, 0),
-    //     };
+    // Define beams (beams)
+    std::vector<Beam>
+        beams = {
+            Beam(0, 1, 0, 0),
+            Beam(0, 2, 1, 1),
+            Beam(1, 2, 0, 0),
+            Beam(1, 3, 1, 1),
+            Beam(2, 3, 0, 0),
+        };
 
-    // FEMSystem fem_system(nodes, beams, material_profiles, beam_profiles);
+    FEMSystem fem_system(nodes, beams, material_profiles, beam_profiles);
 
-    // // Course Project 2 Loads
-    // fem_system.forces(0 * 3) = -1000.0;
-    // fem_system.forces(0 * 3 + 1) = -1732.0;
+    // Course Project 2 Loads
+    fem_system.forces(0 * 3) = -1000.0;
+    fem_system.forces(0 * 3 + 1) = -1732.0;
 
     // Initialize the renderer
     GraphicsRenderer renderer(fem_system);

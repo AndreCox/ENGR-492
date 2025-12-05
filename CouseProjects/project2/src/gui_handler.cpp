@@ -518,8 +518,8 @@ void GUIHandler::systemControls()
     {
         if (fem_system.nodes[i].constraint_type == Free || fem_system.nodes[i].constraint_type == Slider)
         {
-            float fx = fem_system.forces(i * 2);
-            float fy = fem_system.forces(i * 2 + 1);
+            float fx = fem_system.forces(i * 3);
+            float fy = fem_system.forces(i * 3 + 1);
             ImGui::PushID(i);
 
             ImGui::Text("Node %d Forces:", i + 1);
@@ -529,13 +529,13 @@ void GUIHandler::systemControls()
             ImGui::SameLine();
             if (ImGui::SliderFloat("##FxSlider", &fx, -10000.0f, 10000.0f))
             {
-                fem_system.forces(i * 2) = fx;
+                fem_system.forces(i * 3) = fx;
                 forces_changed = true;
             }
             ImGui::SameLine();
             if (ImGui::InputFloat("##FxInput", &fx))
             {
-                fem_system.forces(i * 2) = fx;
+                fem_system.forces(i * 3) = fx;
                 forces_changed = true;
             }
 
@@ -544,13 +544,13 @@ void GUIHandler::systemControls()
             ImGui::SameLine();
             if (ImGui::SliderFloat("##FySlider", &fy, -10000.0f, 10000.0f))
             {
-                fem_system.forces(i * 2 + 1) = fy;
+                fem_system.forces(i * 3 + 1) = fy;
                 forces_changed = true;
             }
             ImGui::SameLine();
             if (ImGui::InputFloat("##FyInput", &fy))
             {
-                fem_system.forces(i * 2 + 1) = fy;
+                fem_system.forces(i * 3 + 1) = fy;
                 forces_changed = true;
             }
 
@@ -566,9 +566,14 @@ void GUIHandler::systemControls()
     ImGui::Text("Solution:");
     for (int i = 0; i < fem_system.nodes.size(); ++i)
     {
-        ImGui::Text("Node %d: u=%.6f m, v=%.6f m", i + 1,
-                    fem_system.displacement(i * 2),
-                    fem_system.displacement(i * 2 + 1));
+        // Convert rotation from radians to degrees for display
+        double theta_rad = fem_system.displacement(i * 3 + 2);
+        double theta_deg = theta_rad * 180.0 / M_PI; // Assuming M_PI is defined
+
+        ImGui::Text("Node %d: u=%.6f m, v=%.6f m, theta=%.6f deg", i + 1,
+                    fem_system.displacement(i * 3),     // NEW INDEX
+                    fem_system.displacement(i * 3 + 1), // NEW INDEX
+                    theta_deg);                         // NEW: Rotation
     }
 
     // Beam stresses

@@ -417,12 +417,12 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
         sf::Color springColor = getStressColor(spring.stress, system.min_stress, system.max_stress);
 
         sf::Vector2f p1(
-            system.nodes[n1].position[0] + system.displacement(n1 * 2),
-            system.nodes[n1].position[1] + system.displacement(n1 * 2 + 1));
+            system.nodes[n1].position[0] + system.displacement(n1 * 3),
+            system.nodes[n1].position[1] + system.displacement(n1 * 3 + 1));
 
         sf::Vector2f p2(
-            system.nodes[n2].position[0] + system.displacement(n2 * 2),
-            system.nodes[n2].position[1] + system.displacement(n2 * 2 + 1));
+            system.nodes[n2].position[0] + system.displacement(n2 * 3),
+            system.nodes[n2].position[1] + system.displacement(n2 * 3 + 1));
 
         drawThickLine(window, p1, p2, beamThickness, springColor);
 
@@ -453,8 +453,8 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
     int index = 0;
     for (const auto &node : system.nodes)
     {
-        sf::Vector2f pos(node.position[0] + system.displacement(index * 2),
-                         node.position[1] + system.displacement(index * 2 + 1));
+        sf::Vector2f pos(node.position[0] + system.displacement(index * 3),
+                         node.position[1] + system.displacement(index * 3 + 1));
 
         if (node.constraint_type == FixedPin)
         {
@@ -536,14 +536,14 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
 
         // scale factor for force visualization (increase to make arrows shorter)
         const float arrowScale = 500.0f;
-        float fx = system.forces(i * 2) / arrowScale;
-        float fy = system.forces(i * 2 + 1) / arrowScale;
+        float fx = system.forces(i * 3) / arrowScale;
+        float fy = system.forces(i * 3 + 1) / arrowScale;
 
         if (std::abs(fx) < 1e-6f && std::abs(fy) < 1e-6f)
             continue;
 
-        sf::Vector2f start(node.position[0] + system.displacement(i * 2),
-                           node.position[1] + system.displacement(i * 2 + 1));
+        sf::Vector2f start(node.position[0] + system.displacement(i * 3),
+                           node.position[1] + system.displacement(i * 3 + 1));
         sf::Vector2f end = start + sf::Vector2f(fx, fy);
 
         sf::Vertex line[2];

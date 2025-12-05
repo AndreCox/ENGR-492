@@ -433,7 +433,7 @@ int FEMSystem::solve_system()
         if (std::abs(shape.section_modulus) < 1e-12)
         {
             // Handle pure axial stress case or pure shear case if Z is effectively zero (e.g., truss I=0)
-            beam.stress = std::abs(P / shape.area);
+            beam.stress = P / shape.area;
         }
         else
         {
@@ -447,8 +447,11 @@ int FEMSystem::solve_system()
             // Max compression stress (P/A - M/Z)
             double stress_compression = axial_stress - bending_stress_max;
 
-            // The max stress is the largest magnitude of either tension or compression
-            beam.stress = std::max(std::abs(stress_tension), std::abs(stress_compression));
+            // Store the stress with correct sign: positive for tension, negative for compression
+            if (std::abs(stress_tension) > std::abs(stress_compression))
+                beam.stress = stress_tension;
+            else
+                beam.stress = stress_compression;
         }
 
         // Update global min/max stress trackers
