@@ -10,7 +10,7 @@ void Spring::compute_stiffness(const std::vector<Node> &node_list)
     double length = std::sqrt(dx * dx + dy * dy);
 
     // EA/L stiffness
-    k = (A * E) / length;
+    k = (properties.area * properties.material.youngs_modulus) / length;
 
     // Direction cosines
     double c = dx / length; // cos(theta)

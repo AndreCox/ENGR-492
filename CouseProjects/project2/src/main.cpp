@@ -31,10 +31,6 @@ int main()
         return -1;
     }
 
-    // Initialize the renderer
-    GraphicsRenderer renderer;
-    renderer.initialize(1.1f, 1.1f);
-
     // Course Project 2 Example
     std::vector<Node> nodes = {
         Node(12.0f, 0.0f, Free),
@@ -48,19 +44,29 @@ int main()
     const double E_steel = 30e6;      // Psi
     const double E_aluminum = 10e6;   // Psi
 
-    std::vector<Spring> springs = {
-        Spring(0, 1, A_steel, E_steel),
-        Spring(0, 2, A_aluminum, E_aluminum),
-        Spring(1, 2, A_steel, E_steel),
-        Spring(1, 3, A_aluminum, E_aluminum),
-        Spring(2, 3, A_steel, E_steel),
-    };
+    MaterialProfile steel_profile = {"Steel", E_steel};
+    MaterialProfile aluminum_profile = {"Aluminum", E_aluminum};
+    BeamProperties steel_beam = {"Steel Beam", A_steel, steel_profile};
+    BeamProperties aluminum_beam = {"Aluminum Beam", A_aluminum, aluminum_profile};
+
+    std::vector<Spring>
+        springs = {
+            Spring(0, 1, steel_beam),
+            Spring(0, 2, aluminum_beam),
+            Spring(1, 2, steel_beam),
+            Spring(1, 3, aluminum_beam),
+            Spring(2, 3, steel_beam),
+        };
 
     SpringSystem spring_system(nodes, springs);
 
     // Course Project 2 Loads
     spring_system.forces(0 * 2) = -1000.0;
     spring_system.forces(0 * 2 + 1) = -1732.0;
+
+    // Initialize the renderer
+    GraphicsRenderer renderer(spring_system);
+    renderer.initialize(1.1f, 1.1f);
 
     // Create GUI Handler
     GUIHandler gui_handler(spring_system, renderer, window);
@@ -102,7 +108,7 @@ int main()
         renderer.updateView(window);
 
         // Draw the spring system
-        renderer.drawSystem(window, spring_system);
+        renderer.drawSystem(window);
 
         ImGui::SFML::Render(window);
         window.display();

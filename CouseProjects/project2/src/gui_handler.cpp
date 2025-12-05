@@ -283,13 +283,16 @@ void GUIHandler::springEditor()
                 // default area (m^2) and Young's modulus (Pa) — adjust defaults or expose as UI controls elsewhere
                 static float new_area = 0.1963; // cross-sectional area
                 static float new_E = 30e6f;     // Young's modulus (e.g. 200 GPa)
+                BeamProperties properties;
+                properties.area = new_area;
+                properties.material.youngs_modulus = new_E;
                 // if (new_area <= 0.0f)
                 //     new_area = 1.0f;
                 // if (new_E <= 0.0f)
                 //     new_E = 1.0f;
 
                 // construct spring with node indices a/b and material properties A and E
-                spring_system.springs.emplace_back(new_node_a, new_node_b, new_area, new_E);
+                spring_system.springs.emplace_back(new_node_a, new_node_b, properties);
                 springs_changed = true;
             }
         }
@@ -521,7 +524,8 @@ void GUIHandler::handleLoadPopup()
 
             // Construct spring with the saved node indices and reasonable default A and E,
             // then restore the saved stress value.
-            spring_system.springs.emplace_back(a, b, 0.1963, 30e6);
+            // TODO: Fix spring loading
+            // spring_system.springs.emplace_back(a, b, );
             auto &s = spring_system.springs.back();
             s.stress = stress;
         }
@@ -628,6 +632,18 @@ void GUIHandler::handleSavePopup()
     }
 }
 
+void GUIHandler::materialEditor()
+{
+    if (!show_material_editor)
+        return;
+
+    ImGui::Begin("Material Editor", &show_material_editor, ImGuiWindowFlags_AlwaysAutoResize);
+
+    // Material editor content goes here
+
+    ImGui::End();
+}
+
 void GUIHandler::headerBar()
 {
     if (ImGui::BeginMainMenuBar())
@@ -658,6 +674,24 @@ void GUIHandler::headerBar()
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("View"))
+        {
+            if (ImGui::MenuItem("Auto View"))
+            {
+                renderer.centerView();
+                renderer.autoZoomToFit();
+            }
+            if (ImGui::MenuItem("Center View"))
+            {
+                renderer.centerView();
+            }
+            if (ImGui::MenuItem("Auto Zoom"))
+            {
+                renderer.autoZoomToFit();
+            }
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("System"))
         {
             if (ImGui::MenuItem("System Controls"))
@@ -671,6 +705,24 @@ void GUIHandler::headerBar()
             if (ImGui::MenuItem("System Spring Editor"))
             {
                 show_spring_editor = !show_spring_editor;
+            }
+
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Materials & Properties"))
+        {
+            if (ImGui::MenuItem("Material Editor"))
+            {
+                show_material_editor = !show_material_editor;
+            }
+            if (ImGui::MenuItem("Profile Editor"))
+            {
+                show_profile_editor = !show_profile_editor;
+            }
+            if (ImGui::MenuItem("Section Editor"))
+            {
+                show_section_editor = !show_section_editor;
             }
 
             ImGui::EndMenu();

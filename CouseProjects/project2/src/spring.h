@@ -2,11 +2,13 @@
 #include <vector>
 #include <Eigen/Eigen>
 #include "node.h"
+#include "material_profile.h"
 
 class Spring
 {
 public:
-    Spring(int n1, int n2, double A, double E) : A(A), E(E)
+    Spring(int n1, int n2, BeamProperties &properties)
+        : properties(properties)
     {
         nodes[0] = n1;
         nodes[1] = n2;
@@ -17,8 +19,7 @@ public:
     double k;     // stiffness (EA/L)
     float stress; // axial stress in MPa
 
-    double A;
-    double E;
+    BeamProperties properties; // material and cross-sectional properties
 
     Eigen::Matrix4d k_matrix; // 4x4 stiffness matrix in global coordinates
                               // [u1, v1, u2, v2]

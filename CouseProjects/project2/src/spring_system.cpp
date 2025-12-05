@@ -305,7 +305,7 @@ int SpringSystem::solve_system()
         double axial_force = -(c * element_forces(0) + s * element_forces(1));
 
         // Stress = Force / Area (convert to MPa if area in mm^2 — keep consistent with your units)
-        spring.stress = static_cast<double>(axial_force / spring.A); // PSI
+        spring.stress = static_cast<double>(axial_force / spring.properties.area); // PSI
 
         max_stress = std::max(max_stress, spring.stress);
         min_stress = std::min(min_stress, spring.stress);

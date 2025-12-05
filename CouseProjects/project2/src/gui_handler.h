@@ -26,9 +26,19 @@ private:
     void handleSavePopup();
     void handleLoadPopup();
 
+    // material properties editors
+    void materialEditor();
+    void profileEditor();
+    void sectionEditor();
+
     bool show_system_controls = true;
     bool show_node_editor = false;
     bool show_spring_editor = false;
     bool request_save_popup = false;
     bool request_load_popup = false;
+
+    // material properties boolean flags
+    bool show_material_editor = false;
+    bool show_profile_editor = false;
+    bool show_section_editor = false;
 };

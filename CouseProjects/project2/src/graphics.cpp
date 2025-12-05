@@ -1,6 +1,6 @@
 #include "graphics.h"
 
-GraphicsRenderer::GraphicsRenderer()
+GraphicsRenderer::GraphicsRenderer(SpringSystem const &springSystem)
     : worldWidth(1.2f),
       worldHeight(1.2f),
       viewCenter(worldWidth / 2.0f, worldHeight / 2.0f),
@@ -9,7 +9,8 @@ GraphicsRenderer::GraphicsRenderer()
       isFocused(true),
       dragStartedInside(false),
       font(),
-      text(font)
+      text(font),
+      system(springSystem)
 {
     if (!font.openFromFile("resources/fonts/Roboto-Regular.ttf"))
     {
@@ -340,7 +341,7 @@ void GraphicsRenderer::drawThickLine(sf::RenderTarget &target,
     target.draw(cap);
 }
 
-void GraphicsRenderer::drawSystem(sf::RenderWindow &window, const SpringSystem &system) const
+void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
 {
     // Draw grid background first
     drawGrid(window);
@@ -491,5 +492,60 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window, const SpringSystem &
 
             window.draw(arrow, 3, sf::PrimitiveType::Triangles);
         }
+    }
+}
+
+void GraphicsRenderer::centerView()
+{
+    if (system.nodes.empty())
+        return;
+
+    sf::Vector2f sum(0.f, 0.f);
+    for (const auto &node : system.nodes)
+    {
+        sum.x += node.position[0];
+        sum.y += node.position[1];
+    }
+    viewCenter = sf::Vector2f(sum.x / system.nodes.size(), sum.y / system.nodes.size());
+}
+
+void GraphicsRenderer::autoZoomToFit()
+{
+    if (system.nodes.empty())
+        return;
+
+    float minX = system.nodes[0].position[0];
+    float maxX = system.nodes[0].position[0];
+    float minY = system.nodes[0].position[1];
+    float maxY = system.nodes[0].position[1];
+
+    for (const auto &node : system.nodes)
+    {
+        if (node.position[0] < minX)
+            minX = node.position[0];
+        if (node.position[0] > maxX)
+            maxX = node.position[0];
+        if (node.position[1] < minY)
+            minY = node.position[1];
+        if (node.position[1] > maxY)
+            maxY = node.position[1];
+    }
+
+    float padding = 0.1f; // Add some padding around the system
+    float width = (maxX - minX) + padding * 2;
+    float height = (maxY - minY) + padding * 2;
+
+    // Center view
+    viewCenter = sf::Vector2f((minX + maxX) / 2.0f, (minY + maxY) / 2.0f);
+
+    // Adjust zoom to fit
+    float aspectRatio = worldWidth / worldHeight;
+    if (width / height > aspectRatio)
+    {
+        zoom = width / worldWidth;
+    }
+    else
+    {
+        zoom = height / worldHeight;
     }
 }

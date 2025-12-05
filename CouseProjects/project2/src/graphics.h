@@ -12,6 +12,9 @@ private:
     float worldWidth;
     float worldHeight;
 
+    // Spring system
+    const SpringSystem &system;
+
     // View management
     sf::Vector2f viewCenter;
     float zoom;
@@ -39,7 +42,7 @@ private:
     float getViewScale(const sf::RenderWindow &window) const;
 
 public:
-    GraphicsRenderer();
+    GraphicsRenderer(SpringSystem const &system);
 
     // Initialize world dimensions
     void initialize(float width, float height);
@@ -57,7 +60,13 @@ public:
     void updateView(sf::RenderWindow &window);
 
     // Draw the spring system
-    void drawSystem(sf::RenderWindow &window, const SpringSystem &system) const;
+    void drawSystem(sf::RenderWindow &window) const;
+
+    // center view on the world
+    void centerView();
+
+    // auto zoom to fit the entire system
+    void autoZoomToFit();
 
     // Get stress color
     sf::Color getStressColor(float stress, float min_stress, float max_stress) const;
