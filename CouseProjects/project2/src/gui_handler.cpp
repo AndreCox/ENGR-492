@@ -710,6 +710,8 @@ void GUIHandler::handleLoadPopup()
         BeamProfile &p = fem_system.beam_profiles_list[i];
         p.name = readString(ifs);
         ifs.read(reinterpret_cast<char *>(&p.area), sizeof(p.area));
+        ifs.read(reinterpret_cast<char *>(&p.moment_of_inertia), sizeof(p.moment_of_inertia));
+        ifs.read(reinterpret_cast<char *>(&p.section_modulus), sizeof(p.section_modulus));
         if (!ifs)
         {
             error_msg = "Failed reading beam profile " + std::to_string(i);
@@ -826,7 +828,7 @@ void GUIHandler::handleLoadPopup()
         return;
     }
 
-    const size_t expected_forces = fem_system.nodes.size() * 2;
+    const size_t expected_forces = fem_system.nodes.size() * 3;
     if (fcount == expected_forces)
     {
         fem_system.forces.resize(fcount);
@@ -864,9 +866,7 @@ void GUIHandler::handleLoadPopup()
         return;
     }
 
-    // Success — you may want to recompute derived structures
-    // e.g. fem_system.total_dof = nodes.size()*2; etc.
-    fem_system.total_dof = static_cast<int>(fem_system.nodes.size()) * 2;
+    fem_system.total_dof = static_cast<int>(fem_system.nodes.size()) * 3;
     fem_system.displacement = Eigen::VectorXd::Zero(fem_system.total_dof);
     // forces already set (either loaded or zeroed)
     fem_system.solve_system();
@@ -960,6 +960,8 @@ void GUIHandler::handleSavePopup()
     {
         writeString(ofs, p.name);
         ofs.write(reinterpret_cast<const char *>(&p.area), sizeof(p.area));
+        ofs.write(reinterpret_cast<const char *>(&p.moment_of_inertia), sizeof(p.moment_of_inertia));
+        ofs.write(reinterpret_cast<const char *>(&p.section_modulus), sizeof(p.section_modulus));
     }
 
     // 4. Nodes
@@ -1035,16 +1037,44 @@ void GUIHandler::profileEditor()
 
             ImGui::Text("Profile %d: %s", i + 1, profile.name.c_str());
 
-            // Editable area
+            // --- Editable Area ---
             float area = profile.area;
             if (ImGui::InputFloat("Area (m^2)", &area))
             {
                 profile.area = area;
-                // Update all beams using this profile index
-                for (auto &sp : fem_system.beams)
+
+                for (auto &b : fem_system.beams)
                 {
-                    if (sp.shape_idx == i)
-                        fem_system.beam_profiles_list[sp.shape_idx].area = area;
+                    if (b.shape_idx == i)
+                        fem_system.beam_profiles_list[b.shape_idx].area = area;
+                }
+                profiles_changed = true;
+            }
+
+            // --- Editable Moment of Inertia ---
+            float I = profile.moment_of_inertia;
+            if (ImGui::InputFloat("Moment of Inertia I (m^4)", &I))
+            {
+                profile.moment_of_inertia = I;
+
+                for (auto &b : fem_system.beams)
+                {
+                    if (b.shape_idx == i)
+                        fem_system.beam_profiles_list[b.shape_idx].moment_of_inertia = I;
+                }
+                profiles_changed = true;
+            }
+
+            // --- Editable Section Modulus ---
+            float S = profile.section_modulus;
+            if (ImGui::InputFloat("Section Modulus S (m^3)", &S))
+            {
+                profile.section_modulus = S;
+
+                for (auto &b : fem_system.beams)
+                {
+                    if (b.shape_idx == i)
+                        fem_system.beam_profiles_list[b.shape_idx].section_modulus = S;
                 }
                 profiles_changed = true;
             }
@@ -1053,7 +1083,7 @@ void GUIHandler::profileEditor()
             ImGui::SameLine();
             if (ImGui::Button("Remove Profile"))
             {
-                // Remove all beams using this profile
+                // Remove beams using this profile
                 for (int s = 0; s < static_cast<int>(fem_system.beams.size()); ++s)
                 {
                     if (fem_system.beams[s].shape_idx == i)
@@ -1063,12 +1093,10 @@ void GUIHandler::profileEditor()
                     }
                 }
 
-                // Erase the profile
                 fem_system.beam_profiles_list.erase(fem_system.beam_profiles_list.begin() + i);
 
                 ImGui::PopID();
                 profiles_changed = true;
-
                 --i;
                 continue;
             }
@@ -1078,23 +1106,29 @@ void GUIHandler::profileEditor()
         }
     }
 
-    // --- New profile creation ---
+    // --- New Profile Creation ---
     ImGui::Separator();
     ImGui::Text("Create New Profile:");
+
     static char new_profile_name[128] = "";
     static float new_profile_area = 0.1963f;
+    static float new_profile_I = 0.005f;
+    static float new_profile_S = 0.01f;
 
     ImGui::InputText("Name", new_profile_name, sizeof(new_profile_name));
     ImGui::InputFloat("Area (m^2)", &new_profile_area);
+    ImGui::InputFloat("Moment of Inertia I (m^4)", &new_profile_I);
+    ImGui::InputFloat("Section Modulus S (m^3)", &new_profile_S);
 
     ImGui::SameLine();
     if (ImGui::Button("Add Profile"))
     {
         std::string name_str(new_profile_name);
         bool duplicate = false;
-        for (const auto &profile : fem_system.beam_profiles_list)
+
+        for (const auto &p : fem_system.beam_profiles_list)
         {
-            if (profile.name == name_str)
+            if (p.name == name_str)
             {
                 duplicate = true;
                 break;
@@ -1103,14 +1137,19 @@ void GUIHandler::profileEditor()
 
         if (!name_str.empty() && !duplicate)
         {
-            BeamProfile new_profile;
-            new_profile.name = name_str;
-            new_profile.area = new_profile_area;
-            fem_system.beam_profiles_list.push_back(new_profile);
+            BeamProfile new_p;
+            new_p.name = name_str;
+            new_p.area = new_profile_area;
+            new_p.moment_of_inertia = new_profile_I;
+            new_p.section_modulus = new_profile_S;
+
+            fem_system.beam_profiles_list.push_back(new_p);
 
             // Reset fields
             new_profile_name[0] = '\0';
             new_profile_area = 0.1963f;
+            new_profile_I = 0.005f;
+            new_profile_S = 0.01f;
 
             profiles_changed = true;
         }

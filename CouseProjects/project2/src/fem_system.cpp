@@ -88,7 +88,7 @@ int FEMSystem::solve_system()
         }
         else if (nodes[i].constraint_type == Slider)
         {
-            // x and y DOFs are free, theta is fixed
+            // x and y DOFs are free, theta is free
             free_dof_indices.push_back(dof_x);
             free_dof_indices.push_back(dof_y);
             free_dof_indices.push_back(dof_theta); // the beam can still rotate about the slider
@@ -176,7 +176,8 @@ int FEMSystem::solve_system()
 
         // Scale the constraints to match the stiffness matrix magnitude for better conditioning
 
-        double k_scale = K_r.norm();
+        // Use the norm of the absolute values to avoid cancellation from mixed signs
+        double k_scale = K_r.cwiseAbs().norm();
 
         double constraint_scale = (k_scale > 0.0) ? k_scale : 1.0;
 
@@ -210,11 +211,55 @@ int FEMSystem::solve_system()
 
         // stupid high we know the system is ill-conditioned
 
-        Eigen::JacobiSVD<Eigen::MatrixXd> svd(saddle_matrix);
+        // Compute a robust approximate condition number for the augmented (saddle) system
+        // (accounts for 3 DOF per node; uses largest / smallest non-negligible singular value)
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(saddle_matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
+        Eigen::VectorXd sv = svd.singularValues();
 
-        double cond = svd.singularValues()(0) / svd.singularValues().tail(1)(0);
+        double cond = std::numeric_limits<double>::infinity();
+        if (sv.size() > 0)
+        {
+            double smax = sv(0);
+            // find smallest non-negligible singular value to avoid divide-by-zero/noise
+            const double tol = 1e-16;
+            double smin = 0.0;
+            for (int i = sv.size() - 1; i >= 0; --i)
+            {
+                if (sv(i) > tol)
+                {
+                    smin = sv(i);
+                    break;
+                }
+            }
+            if (smin > 0.0)
+                cond = smax / smin;
+        }
 
-        std::cout << "Saddle approx cond num: " << cond << std::endl;
+        if (std::isfinite(cond))
+            std::cout << "Saddle approx cond num: " << cond << std::endl;
+        else
+            std::cout << "Saddle approx cond num: INF or ill-conditioned (smallest singular value ~ 0)" << std::endl;
+
+        std::cout << "Node constraint types:\n";
+        for (int i = 0; i < num_nodes; ++i)
+            std::cout << "  Node " << i << " type=" << nodes[i].constraint_type << " angle=" << nodes[i].constraint_angle << "\n";
+
+        std::cout << "free_dof_indices (" << num_free_dofs << "): ";
+        for (int d : free_dof_indices)
+            std::cout << d << " ";
+        std::cout << std::endl;
+
+        std::cout << "slider_nodes (" << num_constraints << "): ";
+        for (int s : slider_nodes)
+            std::cout << s << " ";
+        std::cout << std::endl;
+
+        std::cout << "Displacement (all DOFs) before reactions:\n"
+                  << displacement.transpose() << std::endl;
+
+        // And print the constraint matrix
+        std::cout << "C_r:\n"
+                  << C_r << std::endl;
 
         // Solve the saddle point system
 

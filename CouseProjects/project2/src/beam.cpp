@@ -79,10 +79,14 @@ void Beam::compute_stiffness(const std::vector<Node> &node_list,
     T(1, 0) = -s;
     T(1, 1) = c;
 
+    T(2, 2) = 1.0; // rotation about z-axis remains unchanged
+
     T(3, 3) = c;
     T(3, 4) = s;
     T(4, 3) = -s;
     T(4, 4) = c;
+
+    T(5, 5) = 1.0; // rotation about z-axis remains unchanged
 
     k_matrix = T.transpose() * k_prime * T;
 }

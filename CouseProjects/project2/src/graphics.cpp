@@ -384,6 +384,43 @@ void GraphicsRenderer::drawThickLine(sf::RenderTarget &target,
     target.draw(cap);
 }
 
+void GraphicsRenderer::drawCubicBezierThick(sf::RenderTarget &target,
+                                            const sf::Vector2f &p0,
+                                            const sf::Vector2f &p1,
+                                            const sf::Vector2f &p2,
+                                            const sf::Vector2f &p3,
+                                            float thickness,
+                                            const sf::Color &color,
+                                            int segments) const
+{
+    if (segments < 1)
+        segments = 1;
+
+    sf::Vector2f previousPoint = p0;
+
+    for (int i = 1; i <= segments; ++i)
+    {
+        float t = static_cast<float>(i) / segments;
+        float u = 1.0f - t;
+        float tt = t * t;
+        float uu = u * u;
+        float uuu = uu * u;
+        float ttt = tt * t;
+
+        // Standard Cubic Bezier Formula:
+        // B(t) = (1-t)^3*P0 + 3*(1-t)^2*t*P1 + 3*(1-t)*t^2*P2 + t^3*P3
+        sf::Vector2f currentPoint =
+            (uuu * p0) +
+            (3 * uu * t * p1) +
+            (3 * u * tt * p2) +
+            (ttt * p3);
+
+        // Reuse existing thick line drawer for the segment
+        drawThickLine(target, previousPoint, currentPoint, thickness, color);
+        previousPoint = currentPoint;
+    }
+}
+
 void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
 {
     // Draw grid background first
@@ -399,6 +436,7 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
     const float baseBeamThickness = 0.01f;
     const float baseNodeSize = 0.03f;
     const float baseArrowSize = 0.01f;
+    const int curveSegments = 24;
 
     // Convert to world units based on current zoom
     float beamThickness = baseBeamThickness * viewScale;
@@ -410,39 +448,97 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
     // -------------------------
     for (size_t i = 0; i < system.beams.size(); ++i)
     {
-        const auto &spring = system.beams[i];
-        int n1 = spring.nodes[0];
-        int n2 = spring.nodes[1];
+        const auto &beam = system.beams[i];
+        int n1_idx = beam.nodes[0];
+        int n2_idx = beam.nodes[1];
 
-        sf::Color springColor = getStressColor(spring.stress, system.min_stress, system.max_stress);
+        sf::Color beamColor = getStressColor(beam.stress, system.min_stress, system.max_stress);
 
-        sf::Vector2f p1(
-            system.nodes[n1].position[0] + system.displacement(n1 * 3),
-            system.nodes[n1].position[1] + system.displacement(n1 * 3 + 1));
+        // 1. Get Displaced Endpoints positions (P0 and P3 for Bezier)
+        sf::Vector2f p0_displaced(
+            system.nodes[n1_idx].position[0] + system.displacement(n1_idx * 3),
+            system.nodes[n1_idx].position[1] + system.displacement(n1_idx * 3 + 1));
 
-        sf::Vector2f p2(
-            system.nodes[n2].position[0] + system.displacement(n2 * 3),
-            system.nodes[n2].position[1] + system.displacement(n2 * 3 + 1));
+        sf::Vector2f p3_displaced(
+            system.nodes[n2_idx].position[0] + system.displacement(n2_idx * 3),
+            system.nodes[n2_idx].position[1] + system.displacement(n2_idx * 3 + 1));
 
-        drawThickLine(window, p1, p2, beamThickness, springColor);
+        // NEW: --- Calculate Bezier Control Points based on Rotation ---
 
-        // Draw spring number at the center
-        sf::Vector2f center = (p1 + p2) * 0.5f;
+        // Get the rotational displacement (theta) at each node.
+        // IMPORTANT: This assumes your system is solving 3 DOF per node (x, y, theta).
+        // Theta is usually at index 3*i + 2.
+        float theta1_rad = static_cast<float>(system.displacement(n1_idx * 3 + 2));
+        float theta2_rad = static_cast<float>(system.displacement(n2_idx * 3 + 2));
+
+        // Calculate the vector of the displaced beam chord
+        sf::Vector2f chordDir = p3_displaced - p0_displaced;
+        float chordLength = std::sqrt(chordDir.x * chordDir.x + chordDir.y * chordDir.y);
+
+        // Avoid division by zero for zero-length beams
+        if (chordLength < 1e-6f)
+        {
+            drawThickLine(window, p0_displaced, p3_displaced, beamThickness, beamColor);
+            continue;
+        }
+
+        // Current angle of the beam's chord in global space
+        float currentChordAngle = std::atan2(chordDir.y, chordDir.x);
+
+        // The actual tangent angle at the node is the chord angle PLUS the nodal rotation.
+        // Note: In some formulations, theta is absolute. If your visualization looks wrong,
+        // try removing currentChordAngle and just using theta1_rad.
+        // Based on typical frame formulations, theta is relative to the beam axis. Let's try relative first.
+        // Wait, no, in standard global stiffness method, theta is the absolute global rotation of the node. Let's use absolute.
+
+        // REVISION: In standard 2D frame analysis, the calculated Theta value in the solution vector
+        // is usually the *change* in rotation from the initial state (0).
+        // We need the initial angle of the undeformed beam.
+        sf::Vector2f initialDir(
+            static_cast<float>(system.nodes[n2_idx].position[0] - system.nodes[n1_idx].position[0]),
+            static_cast<float>(system.nodes[n2_idx].position[1] - system.nodes[n1_idx].position[1]));
+        float initialAngle = std::atan2(initialDir.y, initialDir.x);
+
+        // Final tangent angles = Initial Angle + Calculated Rotation Change
+        float tangent1Angle = initialAngle + theta1_rad;
+        float tangent2Angle = initialAngle + theta2_rad;
+
+        // Calculate control point distance. A heuristic of L/3 or L/4 works well visually.
+        float controlDist = chordLength * 0.33f;
+
+        // Control Point 1 (P1): Start at P0, move along tangent 1 direction
+        sf::Vector2f p1_control = p0_displaced + sf::Vector2f(
+                                                     std::cos(tangent1Angle) * controlDist,
+                                                     std::sin(tangent1Angle) * controlDist);
+
+        // Control Point 2 (P2): Start at P3, move BACKWARDS along tangent 2 direction
+        sf::Vector2f p2_control = p3_displaced - sf::Vector2f(
+                                                     std::cos(tangent2Angle) * controlDist,
+                                                     std::sin(tangent2Angle) * controlDist);
+
+        // Draw the curved beam
+        drawCubicBezierThick(window, p0_displaced, p1_control, p2_control, p3_displaced, beamThickness, beamColor, curveSegments);
+
+        // ---------------------------------------------------------
+
+        // Draw beam number label at the center of the chord (could be improved to follow curve, but this is okay)
+        sf::Vector2f center = (p0_displaced + p3_displaced) * 0.5f;
         sf::Text springLabel(font);
-        springLabel.setString(std::to_string(i + 1));
+        springLabel.setString(std::to_string(i));
         springLabel.setCharacterSize(25);
         springLabel.setStyle(sf::Text::Regular);
         springLabel.setFillColor(sf::Color::Black);
         springLabel.setOutlineColor(sf::Color::White);
-        springLabel.setOutlineThickness(4.f);
+        springLabel.setOutlineThickness(4.f * viewScale / 20.0f); // Scale outline too
 
-        // Center the text
         sf::FloatRect lb = springLabel.getLocalBounds();
         sf::Vector2f labelCenter(lb.getCenter());
         springLabel.setOrigin(labelCenter);
 
         springLabel.setPosition(center);
-        springLabel.setScale(sf::Vector2f(viewScale / 1000, -viewScale / 1000)); // Flip text to match y-up
+        // Adjust scale to keep text readable relative to zoom
+        float textScale = viewScale / 700.0f;
+        springLabel.setScale(sf::Vector2f(textScale, -textScale));
 
         window.draw(springLabel);
     }

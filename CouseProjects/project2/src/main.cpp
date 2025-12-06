@@ -31,15 +31,26 @@ int main()
         return -1;
     }
 
-    const double A_steel = 0.1963;    // in^2
-    const double A_aluminum = 0.1257; // in^2
-    const double E_steel = 30e6;      // Psi
-    const double E_aluminum = 10e6;   // Psi
+    const double PI = 3.14159265358979323846;
+
+    const double diameter_steel = 0.5;    // in
+    const double diameter_aluminum = 0.4; // in
+
+    const double A_steel = PI * std::pow(diameter_steel / 2.0, 2);          // in^2
+    const double A_aluminum = PI * std::pow(diameter_aluminum / 2.0, 2);    // in^2
+    const double I_steel = (PI / 64.0) * std::pow(diameter_steel, 4);       // in^4
+    const double I_aluminum = (PI / 64.0) * std::pow(diameter_aluminum, 4); // in^4
+    const double S_steel = I_steel / (diameter_steel / 2.0);                // in^3
+    const double S_aluminum = I_aluminum / (diameter_aluminum / 2.0);       // in^3
+    const double E_steel = 30e6;                                            // Psi
+    const double E_aluminum = 10e6;                                         // Psi
 
     MaterialProfile steel_material = {"Steel", E_steel};
     MaterialProfile aluminum_material = {"Aluminum", E_aluminum};
-    BeamProfile steel_profile = {"Steel Beam", A_steel};
-    BeamProfile aluminum_profile = {"Aluminum Beam", A_aluminum};
+    BeamProfile steel_beam = {"Steel Beam", A_steel, I_steel, S_steel};
+    BeamProfile aluminum_beam = {"Aluminum Beam", A_aluminum, I_aluminum, S_aluminum};
+    BeamProfile steel_truss = {"Steel Truss", A_steel / 2.0f, 0.0f, 0.0f};
+    BeamProfile aluminum_truss = {"Aluminum Truss", A_aluminum / 2.0f, 0.0f, 0.0f};
 
     // Define material profiles
     std::vector<MaterialProfile> material_profiles = {
@@ -49,8 +60,10 @@ int main()
 
     // Define beam properties
     std::vector<BeamProfile> beam_profiles = {
-        steel_profile,
-        aluminum_profile,
+        steel_beam,
+        aluminum_beam,
+        steel_truss,
+        aluminum_truss,
     };
 
     // Define nodes
@@ -58,17 +71,19 @@ int main()
         Node(12.0f, 0.0f, Free),
         Node(12.0f, 6.0f, Free),
         Node(0.0f, 0.0f, Slider, 90.0f),
-        Node(0.0f, 10.0f, FixedPin),
+        Node(0.0f, 10.0f, Free),
+        Node(-10.0f, 10.0f, Fixed),
     };
 
     // Define beams (beams)
     std::vector<Beam>
         beams = {
-            Beam(0, 1, 0, 0),
-            Beam(0, 2, 1, 1),
-            Beam(1, 2, 0, 0),
-            Beam(1, 3, 1, 1),
-            Beam(2, 3, 0, 0),
+            Beam(0, 1, 0, 2),
+            Beam(0, 2, 1, 3),
+            Beam(1, 2, 0, 2),
+            Beam(1, 3, 1, 3),
+            Beam(2, 3, 0, 2),
+            Beam(3, 4, 1, 1),
         };
 
     FEMSystem fem_system(nodes, beams, material_profiles, beam_profiles);

@@ -38,6 +38,15 @@ private:
                   float thickness,
                   const sf::Color &color) const;
 
+    void drawCubicBezierThick(sf::RenderTarget &target,
+                              const sf::Vector2f &p0,
+                              const sf::Vector2f &p1,
+                              const sf::Vector2f &p2,
+                              const sf::Vector2f &p3,
+                              float thickness,
+                              const sf::Color &color,
+                              int segments) const;
+
     void drawGrid(sf::RenderWindow &window) const;
     float getViewScale(const sf::RenderWindow &window) const;
 
