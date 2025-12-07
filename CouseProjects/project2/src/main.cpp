@@ -77,43 +77,44 @@ int main()
         aluminum_truss,
     };
 
-    std::vector<Node> nodes = {
-        Node(0.0f, 0.0f, Fixed),
-        Node(10.0f, 0.0f, Free),
-    };
-
-    std::vector<Beam> beams = {
-        Beam(0, 1, 1, 1),
-    };
-
-    // Define nodes
+    // simple cantilever beam test case
     // std::vector<Node> nodes = {
-    //     Node(12.0f, 0.0f, Free),
-    //     Node(12.0f, 6.0f, Free),
-    //     Node(0.0f, 0.0f, Slider, 90.0f),
-    //     Node(0.0f, 10.0f, Free),
-    //     Node(-10.0f, 10.0f, Fixed),
+    //     Node(0.0f, 0.0f, Fixed),
+    //     Node(10.0f, 0.0f, Free),
     // };
 
-    // // Define beams (beams)
-    // std::vector<Beam>
-    //     beams = {
-    //         Beam(0, 1, 0, 2),
-    //         Beam(0, 2, 1, 3),
-    //         Beam(1, 2, 0, 2),
-    //         Beam(1, 3, 1, 3),
-    //         Beam(2, 3, 0, 2),
-    //         Beam(3, 4, 1, 1),
-    //     };
+    // std::vector<Beam> beams = {
+    //     Beam(0, 1, 1, 1),
+    // };
+
+    // Define nodes
+    std::vector<Node>
+        nodes = {
+            Node(12.0f, 0.0f, Free),
+            Node(12.0f, 6.0f, Free),
+            Node(0.0f, 0.0f, Slider, 90.0f),
+            Node(0.0f, 10.0f, Free),
+            Node(-10.0f, 10.0f, Fixed),
+        };
+
+    // Define beams (beams)
+    std::vector<Beam>
+        beams = {
+            Beam(0, 1, 0, 2),
+            Beam(0, 2, 1, 3),
+            Beam(1, 2, 0, 2),
+            Beam(1, 3, 1, 3),
+            Beam(2, 3, 0, 2),
+            Beam(3, 4, 1, 1),
+        };
 
     FEMSystem fem_system(nodes, beams, material_profiles, beam_profiles);
 
     fem_system.unit_system = Imperial;
-    fem_system.forces(1 * 3 + 1) = -10.0; // Apply a downward force of 10 lbs at node 0
 
     // Course Project 2 Loads
-    // fem_system.forces(0 * 3) = -1000.0;
-    // fem_system.forces(0 * 3 + 1) = -1732.0;
+    fem_system.forces(0 * 3) = -1904.8259;
+    fem_system.forces(0 * 3 + 1) = -609.6212;
 
     // Initialize the renderer
     GraphicsRenderer renderer(fem_system);

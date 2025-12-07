@@ -184,7 +184,7 @@ void GraphicsRenderer::updatePanning(sf::RenderWindow &window, bool mouseCapture
         mp.x >= 0 && mp.y >= 0 &&
         mp.x < (int)size.x && mp.y < (int)size.y;
 
-    // When clicking down: decide if this drag is allowed
+    // When clicking down decide if this drag is allowed
     if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left))
     {
         if (!isDragging)
@@ -463,11 +463,7 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
             system.nodes[n2_idx].position[0] + system.displacement(n2_idx * 3),
             system.nodes[n2_idx].position[1] + system.displacement(n2_idx * 3 + 1));
 
-        // NEW: --- Calculate Bezier Control Points based on Rotation ---
-
-        // Get the rotational displacement (theta) at each node.
-        // IMPORTANT: This assumes your system is solving 3 DOF per node (x, y, theta).
-        // Theta is usually at index 3*i + 2.
+        // Calculate Bezier Control Points based on Rotation
         float theta1_rad = static_cast<float>(system.displacement(n1_idx * 3 + 2));
         float theta2_rad = static_cast<float>(system.displacement(n2_idx * 3 + 2));
 
@@ -475,7 +471,7 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
         sf::Vector2f chordDir = p3_displaced - p0_displaced;
         float chordLength = std::sqrt(chordDir.x * chordDir.x + chordDir.y * chordDir.y);
 
-        // Avoid division by zero for zero-length beams
+        // Avoid division by zero
         if (chordLength < 1e-6f)
         {
             drawThickLine(window, p0_displaced, p3_displaced, beamThickness, beamColor);
@@ -485,14 +481,6 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
         // Current angle of the beam's chord in global space
         float currentChordAngle = std::atan2(chordDir.y, chordDir.x);
 
-        // The actual tangent angle at the node is the chord angle PLUS the nodal rotation.
-        // Note: In some formulations, theta is absolute. If your visualization looks wrong,
-        // try removing currentChordAngle and just using theta1_rad.
-        // Based on typical frame formulations, theta is relative to the beam axis. Let's try relative first.
-        // Wait, no, in standard global stiffness method, theta is the absolute global rotation of the node. Let's use absolute.
-
-        // REVISION: In standard 2D frame analysis, the calculated Theta value in the solution vector
-        // is usually the *change* in rotation from the initial state (0).
         // We need the initial angle of the undeformed beam.
         sf::Vector2f initialDir(
             static_cast<float>(system.nodes[n2_idx].position[0] - system.nodes[n1_idx].position[0]),
@@ -503,44 +491,68 @@ void GraphicsRenderer::drawSystem(sf::RenderWindow &window) const
         float tangent1Angle = initialAngle + theta1_rad;
         float tangent2Angle = initialAngle + theta2_rad;
 
-        // Calculate control point distance. A heuristic of L/3 or L/4 works well visually.
+        bool n1_is_pinned = !(system.nodes[n1_idx].constraint_type == Fixed);
+        bool n2_is_pinned = !(system.nodes[n2_idx].constraint_type == Fixed);
+
+        // If a node is pinned (free to rotate), override its tangent to align with the chord
+        if (n1_is_pinned)
+            tangent1Angle = currentChordAngle;
+        if (n2_is_pinned)
+            tangent2Angle = currentChordAngle;
+
+        // Calculate control point distance we remove from chord length if pinned
         float controlDist = chordLength * 0.33f;
+        float controlDist1 = n1_is_pinned ? 0.0f : controlDist;
+        float controlDist2 = n2_is_pinned ? 0.0f : controlDist;
 
-        // Control Point 1 (P1): Start at P0, move along tangent 1 direction
+        // Control Point 1 (P1)
         sf::Vector2f p1_control = p0_displaced + sf::Vector2f(
-                                                     std::cos(tangent1Angle) * controlDist,
-                                                     std::sin(tangent1Angle) * controlDist);
+                                                     std::cos(tangent1Angle) * controlDist1,
+                                                     std::sin(tangent1Angle) * controlDist1);
 
-        // Control Point 2 (P2): Start at P3, move BACKWARDS along tangent 2 direction
+        // Control Point 2 (P2)
         sf::Vector2f p2_control = p3_displaced - sf::Vector2f(
-                                                     std::cos(tangent2Angle) * controlDist,
-                                                     std::sin(tangent2Angle) * controlDist);
+                                                     std::cos(tangent2Angle) * controlDist2,
+                                                     std::sin(tangent2Angle) * controlDist2);
 
         // Draw the curved beam
         drawCubicBezierThick(window, p0_displaced, p1_control, p2_control, p3_displaced, beamThickness, beamColor, curveSegments);
 
-        // ---------------------------------------------------------
+        // Draw beam number label at the true center of the Bezier curve
+        // fun calculation time to find the true center that follows the curve!
+        // also hello there having fun being reading my code :)
+        float t_center = 0.5f;
+        float u = 1.0f - t_center;
+        float tt = t_center * t_center;
+        float uu = u * u;
+        float uuu = uu * u;
+        float ttt = tt * t_center;
 
-        // Draw beam number label at the center of the chord (could be improved to follow curve, but this is okay)
-        sf::Vector2f center = (p0_displaced + p3_displaced) * 0.5f;
-        sf::Text springLabel(font);
-        springLabel.setString(std::to_string(i));
-        springLabel.setCharacterSize(25);
-        springLabel.setStyle(sf::Text::Regular);
-        springLabel.setFillColor(sf::Color::Black);
-        springLabel.setOutlineColor(sf::Color::White);
-        springLabel.setOutlineThickness(4.f * viewScale / 20.0f); // Scale outline too
+        sf::Vector2f center =
+            (uuu * p0_displaced) +
+            (3 * uu * t_center * p1_control) +
+            (3 * u * tt * p2_control) +
+            (ttt * p3_displaced);
 
-        sf::FloatRect lb = springLabel.getLocalBounds();
-        sf::Vector2f labelCenter(lb.getCenter());
-        springLabel.setOrigin(labelCenter);
+        // Draw text label in world coordinates
+        sf::Text labelText(font);
+        labelText.setString(std::to_string(i + 1));
+        labelText.setCharacterSize(25); // Scale with zoom
+        labelText.setStyle(sf::Text::Regular);
+        labelText.setFillColor(sf::Color::Black);
+        labelText.setOutlineColor(sf::Color::White);
+        labelText.setOutlineThickness(4.f);
 
-        springLabel.setPosition(center);
-        // Adjust scale to keep text readable relative to zoom
-        float textScale = viewScale / 700.0f;
-        springLabel.setScale(sf::Vector2f(textScale, -textScale));
+        // Center the text
+        sf::FloatRect lb = labelText.getLocalBounds();
+        sf::Vector2f origin(lb.position.x + lb.size.x / 2.f, lb.position.y + lb.size.y / 2.f);
+        labelText.setOrigin(origin);
 
-        window.draw(springLabel);
+        // Position in world coordinates
+        labelText.setPosition(center);
+        labelText.setScale(sf::Vector2f(viewScale / 1000, -viewScale / 1000)); // Flip text to match y-up coordinate system
+
+        window.draw(labelText);
     }
 
     // -------------------------

@@ -16,6 +16,11 @@ void Beam::compute_stiffness(const std::vector<Node> &node_list,
     double A = shape.area;
     double I = shape.moment_of_inertia;
 
+    if (is_truss)
+    {
+        I = 0.0; // For truss elements, set moment of inertia to zero
+    }
+
     double dx = node_list[n2].position[0] - node_list[n1].position[0];
     double dy = node_list[n2].position[1] - node_list[n1].position[1];
     double L = std::sqrt(dx * dx + dy * dy);

@@ -1,0 +1,92 @@
+name: Build and Release C++ Project
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install build tools and SFML
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsfml-dev
+      - name: Configure (Linux)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build (Linux)
+        run: cmake --build build --config Release -- -j
+      - name: Package (Linux)
+        run: tar -czf project-linux.tar.gz -C build .
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-linux
+          path: project-linux.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup vcpkg and install SFML
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+          C:\vcpkg\vcpkg.exe install sfml:x64-windows
+      - name: Configure (Windows)
+        run: cmake -S . -B build -A x64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+      - name: Build (Windows)
+        run: cmake --build build --config Release
+      - name: Package (Windows)
+        run: powershell -Command "Compress-Archive -Path 'build\\*' -DestinationPath project-windows.zip"
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-windows
+          path: project-windows.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: project-linux
+          path: artifacts
+      - name: Download windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: project-windows
+          path: artifacts
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: release-${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+      - name: Upload Linux asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/project-linux.tar.gz
+          asset_name: project-linux.tar.gz
+          asset_content_type: application/gzip
+      - name: Upload Windows asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./artifacts/project-windows.zip
+          asset_name: project-windows.zip
+          asset_content_type: application/zip
